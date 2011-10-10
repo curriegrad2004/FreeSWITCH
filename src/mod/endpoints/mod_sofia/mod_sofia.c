@@ -27,6 +27,7 @@
  * Ken Rice <krice at cometsig.com>
  * Paul D. Tinsley <pdt at jackhammer.org>
  * Bret McDanel <trixter AT 0xdecafbad.com>
+ * Jeffrey Leung <jleung at curriegrad2004.ca
  *
  *
  * mod_sofia.c -- SOFIA SIP Endpoint
@@ -411,7 +412,7 @@ switch_status_t sofia_on_hangup(switch_core_session_t *session)
 	sofia_gateway_t *gateway_ptr = NULL;
 	int rec;
 
-	if ((gateway_name = switch_channel_get_variable(channel, "sip_gateway_name"))) {
+	if ((gateway_name = switch_channel_get_variable(channel, "sip_gateway_name")) || (gateway_name = switch_channel_get_variable(channel, "sip_trunk_name"))) {
 		gateway_ptr = sofia_reg_find_gateway(gateway_name);
 	}
 
@@ -2714,7 +2715,7 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 			uint32_t ob_failed = 0;
 			uint32_t ob = 0;
 
-			stream->write_function(stream, "%25s\t%32s\t%s\t%s\t%s\n", "Profile::Gateway-Name", "    Data    ", "State", "IB Calls(F/T)", "OB Calls(F/T)");
+			stream->write_function(stream, "%25s\t%32s\t%s\t%s\t%s\n", "Profile::Trunk-Name", "    Data    ", "State", "IB Calls(F/T)", "OB Calls(F/T)");
 			stream->write_function(stream, "%s\n", line);
 			switch_mutex_lock(mod_sofia_globals.hash_mutex);
 			for (hi = switch_hash_first(NULL, mod_sofia_globals.profile_hash); hi; hi = switch_hash_next(hi)) {
@@ -2759,7 +2760,7 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 			return SWITCH_STATUS_SUCCESS;
 		}
 
-		if (!strcasecmp(argv[0], "gateway")) {
+		if (!strcasecmp(argv[0], "gateway") || !strcasecmp(argv[0], "trunk")) {
 			if ((gp = sofia_reg_find_gateway(argv[1]))) {
 				switch_assert(gp->state < REG_STATE_LAST);
 
@@ -2963,7 +2964,7 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 
 					switch_assert(gp->state < REG_STATE_LAST);
 
-					stream->write_function(stream, "%25s\t%s\t  %40s\t%s", pkey, "gateway", gp->register_to, sofia_state_names[gp->state]);
+					stream->write_function(stream, "%25s\t%s\t  %40s\t%s", pkey, "trunk", gp->register_to, sofia_state_names[gp->state]);
 					free(pkey);
 
 					if (gp->state == REG_STATE_FAILED || gp->state == REG_STATE_TRYING) {
@@ -3063,7 +3064,7 @@ static switch_status_t cmd_xml_status(char **argv, int argc, switch_stream_handl
 			stream->write_function(stream, "</gateways>\n");
 
 		} else if (argc == 1 && !strcasecmp(argv[0], "profile")) {
-		} else if (!strcasecmp(argv[0], "gateway")) {
+		} else if (!strcasecmp(argv[0], "gateway") || !strcasecmp(argv[0], "trunk")) {
 			if ((gp = sofia_reg_find_gateway(argv[1]))) {
 				switch_assert(gp->state < REG_STATE_LAST);
 				stream->write_function(stream, "%s\n", header);
@@ -3292,7 +3293,7 @@ static switch_status_t cmd_profile(char **argv, int argc, switch_stream_handle_t
 		return SWITCH_STATUS_SUCCESS;
 	}
 
-	if (!strcasecmp(argv[1], "killgw")) {
+	if (!strcasecmp(argv[1], "killgw") || !strcasecmp(argv[1], "killtrunk")) {
 		sofia_gateway_t *gateway_ptr;
 		if (argc < 3) {
 			stream->write_function(stream, "-ERR missing gw name\n");
@@ -3402,7 +3403,7 @@ static switch_status_t cmd_profile(char **argv, int argc, switch_stream_handle_t
 		sofia_gateway_t *gateway_ptr;
 
 		if (zstr(gname)) {
-			stream->write_function(stream, "No gateway name provided!\n");
+			stream->write_function(stream, "No trunk name provided!\n");
 			goto done;
 		}
 
@@ -3418,7 +3419,7 @@ static switch_status_t cmd_profile(char **argv, int argc, switch_stream_handle_t
 			stream->write_function(stream, "+OK\n");
 			sofia_reg_release_gateway(gateway_ptr);
 		} else {
-			stream->write_function(stream, "Invalid gateway!\n");
+			stream->write_function(stream, "Invalid trunk!\n");
 		}
 
 		goto done;
@@ -3429,7 +3430,7 @@ static switch_status_t cmd_profile(char **argv, int argc, switch_stream_handle_t
 		sofia_gateway_t *gateway_ptr;
 
 		if (zstr(gname)) {
-			stream->write_function(stream, "No gateway name provided!\n");
+			stream->write_function(stream, "No trunk name provided!\n");
 			goto done;
 		}
 
@@ -3445,7 +3446,7 @@ static switch_status_t cmd_profile(char **argv, int argc, switch_stream_handle_t
 			stream->write_function(stream, "+OK\n");
 			sofia_reg_release_gateway(gateway_ptr);
 		} else {
-			stream->write_function(stream, "Invalid gateway!\n");
+			stream->write_function(stream, "Invalid trunk!\n");
 		}
 		goto done;
 	}
@@ -3508,7 +3509,7 @@ static switch_status_t cmd_profile(char **argv, int argc, switch_stream_handle_t
 	}
 
 
-	if (!strcasecmp(argv[1], "gwlist")) {
+	if (!strcasecmp(argv[1], "gwlist") || !strcasecmp(argv[1], "trunklist")) {
 		int up = 1;
 		
 		if (argc > 2) {
@@ -3966,13 +3967,13 @@ SWITCH_STANDARD_API(sofia_function)
 		"                     flush_inbound_reg [<call_id> | <[user]@domain>] [reboot]\n"
 		"                     check_sync [<call_id> | <[user]@domain>]\n"
 		"                     [register | unregister] [<gateway name> | all]\n"
-		"                     killgw <gateway name>\n"
+		"                     killtrunk <gateway name>\n"
 		"                     [stun-auto-disable | stun-enabled] [true | false]]\n"
 		"                     siptrace <on|off>\n"
 		"                     capture  <on|off>\n"
 		"                     watchdog <on|off>\n\n"
 		"sofia <status|xmlstatus> profile <name> [reg <contact str>] | [pres <pres str>] | [user <user@domain>]\n"
-		"sofia <status|xmlstatus> gateway <name>\n\n"
+		"sofia <status|xmlstatus> trunk <name>\n\n"
 		"sofia loglevel <all|default|tport|iptsec|nea|nta|nth_client|nth_server|nua|soa|sresolv|stun> [0-9]\n"
 		"sofia tracelevel <console|alert|crit|err|warning|notice|info|debug>\n\n"
 		"sofia help\n"
@@ -4209,7 +4210,7 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 		dest_to = switch_core_session_strdup(nsession, hval);
 	}
 
-	if (!strncasecmp(profile_name, "gateway/", 8)) {
+	if (!strncasecmp(profile_name, "gateway/", 8) || !strncasecmp(profile_name, "trunk/", 6)) {
 		char *gw, *params;
 
 		if (!(gw = strchr(profile_name, '/'))) {
@@ -4229,13 +4230,13 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 		*dest++ = '\0';
 
 		if (!(gateway_ptr = sofia_reg_find_gateway(gw))) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid Gateway\n");
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid Trunk\n");
 			cause = SWITCH_CAUSE_INVALID_NUMBER_FORMAT;
 			goto error;
 		}
 
 		if (gateway_ptr->status != SOFIA_GATEWAY_UP) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Gateway is down!\n");
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Trunk is down!\n");
 			cause = SWITCH_CAUSE_NETWORK_OUT_OF_ORDER;
 			gateway_ptr->ob_failed_calls++;
 			goto error;
@@ -4270,7 +4271,7 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 
 		if (tech_pvt->transport != gateway_ptr->register_transport) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR,
-							  "You are trying to use a different transport type for this gateway (overriding the register-transport), this is unsupported!\n");
+							  "You are trying to use a different transport type for this trunk (overriding the register-transport), this is unsupported!\n");
 			cause = SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER;
 			goto error;
 		}
@@ -4278,6 +4279,7 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 		profile = gateway_ptr->profile;
 		tech_pvt->gateway_name = switch_core_session_strdup(nsession, gateway_ptr->name);
 		switch_channel_set_variable(nchannel, "sip_gateway_name", gateway_ptr->name);
+		switch_channel_set_variable(nchannel, "sip_trunk_name", gateway_ptr->name);
 
 		if (!sofia_test_flag(gateway_ptr, REG_FLAG_CALLERID)) {
 			tech_pvt->gateway_from_str = switch_core_session_strdup(nsession, gateway_ptr->register_from);
@@ -5301,6 +5303,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_sofia_load)
 	switch_console_set_complete("add sofia profile ::sofia::list_profiles register ::sofia::list_profile_gateway");
 	switch_console_set_complete("add sofia profile ::sofia::list_profiles unregister ::sofia::list_profile_gateway");
 	switch_console_set_complete("add sofia profile ::sofia::list_profiles killgw ::sofia::list_profile_gateway");
+	/* Proper naming convention for BCIT telecom students */
+	switch_console_set_complete("add sofia profile ::sofia::list_profiles killtrunk ::sofia::list_profile_gateway");
 	switch_console_set_complete("add sofia profile ::sofia::list_profiles siptrace on");
 	switch_console_set_complete("add sofia profile ::sofia::list_profiles siptrace off");
 	switch_console_set_complete("add sofia profile ::sofia::list_profiles capture on");
@@ -5310,12 +5314,16 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_sofia_load)
 
 	switch_console_set_complete("add sofia profile ::sofia::list_profiles gwlist up");
 	switch_console_set_complete("add sofia profile ::sofia::list_profiles gwlist down");
+	/* Proper naming convention for BCIT telecom students */
+	switch_console_set_complete("add sofia profile ::sofia::list_profiles trunklist up");
+	switch_console_set_complete("add sofia profile ::sofia::list_profiles trunklist down");
 
 	switch_console_set_complete("add sofia status profile ::sofia::list_profiles");
 	switch_console_set_complete("add sofia status profile ::sofia::list_profiles reg");
 	switch_console_set_complete("add sofia status gateway ::sofia::list_gateways");
 	switch_console_set_complete("add sofia xmlstatus profile ::sofia::list_profiles");
 	switch_console_set_complete("add sofia xmlstatus profile ::sofia::list_profiles reg");
+	switch_console_set_complete("add sofia xmlstatus trunk ::sofia::list_gateways");
 	switch_console_set_complete("add sofia xmlstatus gateway ::sofia::list_gateways");
 
 	switch_console_add_complete_func("::sofia::list_profiles", list_profiles);

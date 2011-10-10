@@ -31,6 +31,7 @@
  * Norman Brandinger
  * Raymond Chandler <intralanman@gmail.com>
  * Nathan Patrick <npatrick at corp.sonic.net>
+ * Jeffrey Leung <jleung at curriegrad2004.ca>
  *
  *
  * sofia.c -- SOFIA SIP Endpoint (sofia code)
@@ -54,7 +55,7 @@ extern su_log_t stun_log[];
 extern su_log_t su_log_default[];
 
 static void config_sofia_profile_urls(sofia_profile_t * profile);
-static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag);
+static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag, const char *propernaming);
 static void parse_domain_tag(sofia_profile_t *profile, switch_xml_t x_domain_tag, const char *dname, const char *parse, const char *alias);
 
 void sofia_handle_sip_i_reinvite(switch_core_session_t *session,
@@ -1685,7 +1686,12 @@ switch_thread_t *launch_sofia_worker_thread(sofia_profile_t *profile)
 		if ((xprofile = switch_xml_find_child(xprofiles, "profile", "name", profile->name))) {
 
 			if ((gateways_tag = switch_xml_child(xprofile, "gateways"))) {
-				parse_gateways(profile, gateways_tag);
+				parse_gateways(profile, gateways_tag, "gateway");
+			}
+
+			/* Proper naming convention for BCIT telecom techs */
+			if ((gateways_tag = switch_xml_child(xprofile, "trunks"))) {
+				parse_gateways(profile, gateways_tag, "trunk");
 			}
 
 			if ((domains_tag = switch_xml_child(xprofile, "domains"))) {
@@ -2214,12 +2220,13 @@ static void parse_gateway_subscriptions(sofia_profile_t *profile, sofia_gateway_
 	}
 }
 
-static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag)
+/* Added the const *char propernaming variable */
+static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag, const char *propernaming)
 {
 	switch_xml_t gateway_tag, param = NULL, x_params, gw_subs_tag;
 	sofia_gateway_t *gp;
 
-	for (gateway_tag = switch_xml_child(gateways_tag, "gateway"); gateway_tag; gateway_tag = gateway_tag->next) {
+	for (gateway_tag = switch_xml_child(gateways_tag, propernaming); gateway_tag; gateway_tag = gateway_tag->next) {
 		char *name = (char *) switch_xml_attr_soft(gateway_tag, "name");
 		sofia_gateway_t *gateway;
 		char *pkey = switch_mprintf("%s::%s", profile->name, name);
@@ -2604,7 +2611,11 @@ static void parse_domain_tag(sofia_profile_t *profile, switch_xml_t x_domain_tag
 		/* Backwards Compatibility */
 		for (ut = switch_xml_child(x_domain_tag, "user"); ut; ut = ut->next) {
 			if (((gateways_tag = switch_xml_child(ut, "gateways")))) {
-				parse_gateways(profile, gateways_tag);
+				parse_gateways(profile, gateways_tag, "gateway");
+			}
+			/* Proper naming convention for telecom techs from BCIT */
+			if (((gateways_tag = switch_xml_child(ut, "trunks")))) {
+				parse_gateways(profile, gateways_tag, "trunk");
 			}
 		}
 		/* New Method with <groups> tags and users are now inside a <users> tag */
@@ -2613,7 +2624,11 @@ static void parse_domain_tag(sofia_profile_t *profile, switch_xml_t x_domain_tag
 				for (uts = switch_xml_child(gt, "users"); uts; uts = uts->next) {
 					for (ut = switch_xml_child(uts, "user"); ut; ut = ut->next) {
 						if (((gateways_tag = switch_xml_child(ut, "gateways")))) {
-							parse_gateways(profile, gateways_tag);
+							parse_gateways(profile, gateways_tag, "gateway");
+						}
+						/* Proper naming convention for telecom techs from BCIT */
+						if (((gateways_tag = switch_xml_child(ut, "trunks")))) {
+							parse_gateways(profile, gateways_tag, "trunk");
 						}
 					}
 				}
@@ -3309,7 +3324,11 @@ switch_status_t reconfig_sofia(sofia_profile_t *profile)
 			}
 
 			if ((gateways_tag = switch_xml_child(xprofile, "gateways"))) {
-				parse_gateways(profile, gateways_tag);
+				parse_gateways(profile, gateways_tag, "gateway");
+			}
+			/* Proper naming convention for telecom techs from BCIT */
+			if ((gateways_tag = switch_xml_child(xprofile, "trunks"))) {
+				parse_gateways(profile, gateways_tag, "trunk");
 			}
 
 			status = SWITCH_STATUS_SUCCESS;
@@ -7672,6 +7691,8 @@ void sofia_handle_sip_i_invite(nua_t *nua, sofia_profile_t *profile, nua_handle_
 		if (gateway) {
 			context = switch_core_session_strdup(session, gateway->register_context);
 			switch_channel_set_variable(channel, "sip_gateway", gateway->name);
+			/* Exporting sip_gateway again as sip_trunk */
+			switch_channel_set_variable(channel, "sip_trunk", gateway->name);
 
 			if (!zstr(extension)) {
 				if (!strcasecmp(extension, "auto_to_user")) {
