@@ -1791,7 +1791,7 @@ SWITCH_STANDARD_API(status_function)
 	return SWITCH_STATUS_SUCCESS;
 }
 
-#define CTL_SYNTAX "[send_sighup|hupall|pause|resume|shutdown [cancel|elegant|asap|now|restart]|sps|sync_clock|reclaim_mem|max_sessions|min_dtmf_duration [num]|max_dtmf_duration [num]|default_dtmf_duration [num]|min_idle_cpu|loglevel [level]|debug_level [level]]"
+#define CTL_SYNTAX "[send_sighup|hupall|pause|resume|shutdown [cancel|elegant|asap|now|restart]|sps|sync_clock|sync_clock_when_idle|reclaim_mem|max_sessions|min_dtmf_duration [num]|max_dtmf_duration [num]|default_dtmf_duration [num]|min_idle_cpu|loglevel [level]|debug_level [level]]"
 SWITCH_STANDARD_API(ctl_function)
 {
 	int argc;
@@ -1972,6 +1972,14 @@ SWITCH_STANDARD_API(ctl_function)
 			arg = 0;
 			switch_core_session_ctl(SCSC_SYNC_CLOCK, &arg);
 			stream->write_function(stream, "+OK clock synchronized\n");
+		} else if (!strcasecmp(argv[0], "sync_clock_when_idle")) {
+			arg = 0;
+			switch_core_session_ctl(SCSC_SYNC_CLOCK_WHEN_IDLE, &arg);
+			if (arg) {
+				stream->write_function(stream, "+OK clock synchronized\n");
+			} else {
+				stream->write_function(stream, "+OK clock will synchronize when there are no more calls\n");
+			}
 		} else {
 			stream->write_function(stream, "-ERR INVALID COMMAND\nUSAGE: fsctl %s", CTL_SYNTAX);
 			goto end;
@@ -2435,12 +2443,11 @@ SWITCH_STANDARD_API(tone_detect_session_function)
 
 SWITCH_STANDARD_API(uuid_function)
 {
-	switch_uuid_t uuid;
 	char uuid_str[SWITCH_UUID_FORMATTED_LENGTH + 1];
 
-	switch_uuid_get(&uuid);
-	switch_uuid_format(uuid_str, &uuid);
-	stream->write_function(stream, "%s", uuid_str);
+	switch_uuid_str(uuid_str, sizeof(uuid_str));
+	
+	stream->write_function(stream, "%s", uuid_str);	
 	return SWITCH_STATUS_SUCCESS;
 }
 
