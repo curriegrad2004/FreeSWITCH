@@ -718,7 +718,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mod_callcenter", "src\mod\a
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mod_blacklist", "src\mod\applications\mod_blacklist\mod_blacklist.2010.vcxproj", "{50AAC2CE-BFC9-4912-87CC-C6381850D735}"
 EndProject
-
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		All|Win32 = All|Win32
@@ -3678,7 +3677,9 @@ Global
 		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Debug|x64 Setup.ActiveCfg = Debug|x64
 		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Debug|x86 Setup.ActiveCfg = Debug|x64
 		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|Win32.ActiveCfg = Release|Win32
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|Win32.Build.0 = Release|Win32
 		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|x64.ActiveCfg = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|x64.Build.0 = Release|x64
 		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|x64 Setup.ActiveCfg = Release|x64
 		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|x86 Setup.ActiveCfg = Release|x64
 	EndGlobalSection
