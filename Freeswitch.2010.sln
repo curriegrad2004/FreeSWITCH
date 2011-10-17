@@ -716,6 +716,9 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ldns", "libs\win32\ldns\ldn
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mod_callcenter", "src\mod\applications\mod_callcenter\mod_callcenter.2010.vcxproj", "{47886A6C-CCA6-4F9F-A7D4-F97D06FB2B1A}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mod_blacklist", "src\mod\applications\mod_callcenter\mod_blacklist.2010.vcxproj", "{50AAC2CE-BFC9-4912-87CC-C6381850D735}"
+EndProject
+
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		All|Win32 = All|Win32
@@ -3665,6 +3668,19 @@ Global
 		{47886A6C-CCA6-4F9F-A7D4-F97D06FB2B1A}.Release|x64.ActiveCfg = Release|x64
 		{47886A6C-CCA6-4F9F-A7D4-F97D06FB2B1A}.Release|x64 Setup.ActiveCfg = Release|x64
 		{47886A6C-CCA6-4F9F-A7D4-F97D06FB2B1A}.Release|x86 Setup.ActiveCfg = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.All|Win32.ActiveCfg = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.All|x64.ActiveCfg = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.All|x64.Build.0 = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.All|x64 Setup.ActiveCfg = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.All|x86 Setup.ActiveCfg = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Debug|Win32.ActiveCfg = Debug|Win32
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Debug|x64.ActiveCfg = Debug|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Debug|x64 Setup.ActiveCfg = Debug|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Debug|x86 Setup.ActiveCfg = Debug|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|Win32.ActiveCfg = Release|Win32
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|x64.ActiveCfg = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|x64 Setup.ActiveCfg = Release|x64
+		{50AAC2CE-BFC9-4912-87CC-C6381850D735}.Release|x86 Setup.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
