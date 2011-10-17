@@ -716,7 +716,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ldns", "libs\win32\ldns\ldn
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mod_callcenter", "src\mod\applications\mod_callcenter\mod_callcenter.2010.vcxproj", "{47886A6C-CCA6-4F9F-A7D4-F97D06FB2B1A}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mod_blacklist", "src\mod\applications\mod_callcenter\mod_blacklist.2010.vcxproj", "{50AAC2CE-BFC9-4912-87CC-C6381850D735}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mod_blacklist", "src\mod\applications\mod_blacklist\mod_blacklist.2010.vcxproj", "{50AAC2CE-BFC9-4912-87CC-C6381850D735}"
 EndProject
 
 Global
