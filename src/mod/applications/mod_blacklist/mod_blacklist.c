@@ -280,6 +280,10 @@ SWITCH_STANDARD_API(blacklist_api_function)
 		
 		switch_mutex_lock(globals.lists_mutex);
 		if (switch_file_open(&fd, filename, SWITCH_FOPEN_WRITE, SWITCH_FPROT_UREAD | SWITCH_FPROT_UWRITE, globals.pool) == SWITCH_STATUS_SUCCESS) {
+			/* Dilemma here : Should I clear the file's content first or should I append to it? Dump sounds like overwrite first and then
+			 * save to the file - Need some more input in this
+			 */
+			// switch_file_write(fd, "", (char *)var);
 			for (hi = switch_hash_first(NULL, bl->list); hi; hi = switch_hash_next(hi)) {
 				switch_hash_this(hi, &var, NULL, &val);
 				switch_file_printf(fd, "%s\n", (char *)var);
