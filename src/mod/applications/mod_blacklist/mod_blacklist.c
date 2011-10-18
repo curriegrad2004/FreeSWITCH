@@ -25,6 +25,7 @@
  * 
  * Mathieu Rene <mrene@avgs.ca>
  * Raymond Chandler <intralanman@freeswitch.org>
+ * Jeff Leung <jleung@curriegrad2004.ca>
  *
  * mod_blacklist.c -- Blacklist module
  *
@@ -166,6 +167,8 @@ static switch_status_t do_config(switch_bool_t reload)
 	"blacklist check <listname> <item>\n"	\
 	"blacklist add <listname> <item>\n"	\
 	"blacklist del <listname> <item>\n"	\
+	"blacklist dump <listname> \n"	\
+	"blacklist save <listname> \n"	\
 	"blacklist reload\n"			\
 	"blacklist help\n"
 
@@ -249,7 +252,7 @@ SWITCH_STANDARD_API(blacklist_api_function)
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Removed [%s] from list [%s]\n", argv[2], argv[1]);
 		switch_mutex_unlock(bl->list_mutex);
 		stream->write_function(stream, "+OK\n");
-	} else if (!strcasecmp(argv[0], "dump"))  {
+	} else if (!strcasecmp(argv[0], "dump") || !strcasecmp(argv[0], "save"))  {
 		switch_hash_index_t *hi;
 		void *val;
 		const void *var;
@@ -275,15 +278,22 @@ SWITCH_STANDARD_API(blacklist_api_function)
 			stream->write_function(stream, "-ERR Unknown blacklist\n");
 			goto done;
 		}
-
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Dumping %s to %s\n", argv[1], filename);
-		
+					if (!strcasecmp(argv[0],"save"))
+					{	
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Saving %s to %s\n", argv[1], filename);
+					}
+					else
+					{
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Dumping %s to %s\n", argv[1], filename);
+					}		
 		switch_mutex_lock(globals.lists_mutex);
 		if (switch_file_open(&fd, filename, SWITCH_FOPEN_WRITE, SWITCH_FPROT_UREAD | SWITCH_FPROT_UWRITE, globals.pool) == SWITCH_STATUS_SUCCESS) {
-			/* Dilemma here : Should I clear the file's content first or should I append to it? Dump sounds like overwrite first and then
-			 * save to the file - Need some more input in this
-			 */
-			// switch_file_write(fd, "", (char *)var);
+			if (!strcasecmp(argv[0],"save"))
+			{	
+				// If it's set to save, then truncate and dump whatever is on the hash db... hopefully
+				switch_file_trunc(fd,0x0000000000000000);
+			}
+
 			for (hi = switch_hash_first(NULL, bl->list); hi; hi = switch_hash_next(hi)) {
 				switch_hash_this(hi, &var, NULL, &val);
 				switch_file_printf(fd, "%s\n", (char *)var);
