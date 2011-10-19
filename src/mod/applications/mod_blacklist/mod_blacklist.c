@@ -167,7 +167,6 @@ static switch_status_t do_config(switch_bool_t reload)
 	"blacklist check <listname> <item>\n"	\
 	"blacklist add <listname> <item>\n"	\
 	"blacklist del <listname> <item>\n"	\
-	"blacklist dump <listname> \n"	\
 	"blacklist save <listname> \n"	\
 	"blacklist reload\n"			\
 	"blacklist help\n"
@@ -278,21 +277,13 @@ SWITCH_STANDARD_API(blacklist_api_function)
 			stream->write_function(stream, "-ERR Unknown blacklist\n");
 			goto done;
 		}
-					if (!strcasecmp(argv[0],"save"))
-					{	
-						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Saving %s to %s\n", argv[1], filename);
-					}
-					else
-					{
-						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Dumping %s to %s\n", argv[1], filename);
-					}		
+
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Saving %s to %s\n", argv[1], filename);
 		switch_mutex_lock(globals.lists_mutex);
+
 		if (switch_file_open(&fd, filename, SWITCH_FOPEN_WRITE, SWITCH_FPROT_UREAD | SWITCH_FPROT_UWRITE, globals.pool) == SWITCH_STATUS_SUCCESS) {
-			if (!strcasecmp(argv[0],"save"))
-			{	
-				// If it's set to save, then truncate and dump whatever is on the hash db... hopefully
-				switch_file_trunc(fd,0x0000000000000000);
-			}
+			// If it's set to save, then truncate and dump whatever is on the hash db... hopefully
+			switch_file_trunc(fd,0x0000000000000000);
 
 			for (hi = switch_hash_first(NULL, bl->list); hi; hi = switch_hash_next(hi)) {
 				switch_hash_this(hi, &var, NULL, &val);
