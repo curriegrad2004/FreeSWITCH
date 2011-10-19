@@ -25,7 +25,6 @@
  * 
  * Mathieu Rene <mrene@avgs.ca>
  * Raymond Chandler <intralanman@freeswitch.org>
- * Jeff Leung <jleung@curriegrad2004.ca>
  *
  * mod_blacklist.c -- Blacklist module
  *
@@ -282,6 +281,7 @@ SWITCH_STANDARD_API(blacklist_api_function)
 		switch_mutex_lock(globals.lists_mutex);
 
 		if (switch_file_open(&fd, filename, SWITCH_FOPEN_WRITE, SWITCH_FPROT_UREAD | SWITCH_FPROT_UWRITE, globals.pool) == SWITCH_STATUS_SUCCESS) {
+
 			// If it's set to save, then truncate and dump whatever is on the hash db... hopefully
 			switch_file_trunc(fd,0x0000000000000000);
 
