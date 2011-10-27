@@ -490,11 +490,12 @@ switch_status_t sofia_on_hangup(switch_core_session_t *session)
 		const char *val = NULL;
 
 		val = switch_channel_get_variable(tech_pvt->channel, "disable_q850_reason");
-		if (!val || switch_true(val)) {
-			if (cause > 0 && cause < 128) {
-				switch_snprintf(reason, sizeof(reason), "Q.850;cause=%d;text=\"%s\"", cause, switch_channel_cause2str(cause));
-			} else if (cause == SWITCH_CAUSE_PICKED_OFF || cause == SWITCH_CAUSE_LOSE_RACE) {
+
+		if (switch_false(val)) {
+			if (switch_channel_test_flag(channel, CF_INTERCEPT) || cause == SWITCH_CAUSE_PICKED_OFF || cause == SWITCH_CAUSE_LOSE_RACE) {
 				switch_snprintf(reason, sizeof(reason), "SIP;cause=200;text=\"Call completed elsewhere\"");
+			} else if (cause > 0 && cause < 128) {
+				switch_snprintf(reason, sizeof(reason), "Q.850;cause=%d;text=\"%s\"", cause, switch_channel_cause2str(cause));
 			} else {
 				switch_snprintf(reason, sizeof(reason), "%s;cause=%d;text=\"%s\"", tech_pvt->profile->username, cause, switch_channel_cause2str(cause));
 			}
@@ -4470,6 +4471,8 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 
 	if (profile->pres_type) {
 		char *sql;
+		time_t now;
+
 		const char *presence_id = switch_channel_get_variable(nchannel, "presence_id");
 		const char *presence_data = switch_channel_get_variable(nchannel, "presence_data");
 
@@ -4481,9 +4484,10 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 			presence_data = switch_event_get_header(var_event, "presence_data");
 		}
 
-		sql = switch_mprintf("insert into sip_dialogs (uuid,presence_id,presence_data,profile_name,hostname) "
-							 "values ('%q', '%q', '%q', '%q', '%q')", switch_core_session_get_uuid(nsession),
-							 switch_str_nil(presence_id), switch_str_nil(presence_data), profile->name, mod_sofia_globals.hostname);
+		now = switch_epoch_time_now(NULL);
+		sql = switch_mprintf("insert into sip_dialogs (uuid,presence_id,presence_data,profile_name,hostname,rcd) "
+							 "values ('%q', '%q', '%q', '%q', '%q', %ld)", switch_core_session_get_uuid(nsession),
+							 switch_str_nil(presence_id), switch_str_nil(presence_data), profile->name, mod_sofia_globals.hostname, (long) now);
 		sofia_glue_actually_execute_sql(profile, sql, profile->ireg_mutex);
 		switch_safe_free(sql);
 	}
