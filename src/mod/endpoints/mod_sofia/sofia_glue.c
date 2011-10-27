@@ -1959,6 +1959,12 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 
 	caller_profile = switch_channel_get_caller_profile(channel);
 
+	if (!caller_profile) {
+		switch_channel_hangup(channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
+		return SWITCH_STATUS_FALSE;
+	}
+
+
 	cid_name = caller_profile->caller_id_name;
 	cid_num = caller_profile->caller_id_number;
 	sofia_glue_tech_prepare_codecs(tech_pvt);
@@ -5368,7 +5374,7 @@ static int recover_callback(void *pArg, int argc, char **argv, char **columnName
 		return 0;
 
 	if (!(session = switch_core_session_request_xml(sofia_endpoint_interface, NULL, xml))) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "skipping non-bridged entry\n");
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Invalid cdr data, call not recovered\n");
 		return 0;
 	}
 
@@ -5826,7 +5832,8 @@ int sofia_glue_init_sql(sofia_profile_t *profile)
 		"   status          VARCHAR(255),\n"
 		"   rpid            VARCHAR(255),\n"
 		"   sip_to_tag      VARCHAR(255),\n"
-		"   sip_from_tag    VARCHAR(255)\n"
+		"   sip_from_tag    VARCHAR(255),\n"
+		"   rcd             INTEGER not null default 0\n"
 		");\n";
 
 	char sub_sql[] =
@@ -5849,7 +5856,8 @@ int sofia_glue_init_sql(sofia_profile_t *profile)
 		"   hostname        VARCHAR(255),\n"
 		"   network_port    VARCHAR(6),\n"
 		"   network_ip      VARCHAR(255),\n"
-		"   version         INTEGER DEFAULT 0 NOT NULL\n"
+		"   version         INTEGER DEFAULT 0 NOT NULL,\n"
+		"   orig_proto      VARCHAR(255)\n"
 		");\n";
 
 	char auth_sql[] =
@@ -5889,6 +5897,8 @@ int sofia_glue_init_sql(sofia_profile_t *profile)
 		"create index sr_call_id on sip_registrations (call_id)",
 		"create index sr_sip_user on sip_registrations (sip_user)",
 		"create index sr_sip_host on sip_registrations (sip_host)",
+		"create index sr_mwi_user on sip_registrations (mwi_user)",
+		"create index sr_mwi_host on sip_registrations (mwi_host)",
 		"create index sr_profile_name on sip_registrations (profile_name)",
 		"create index sr_presence_hosts on sip_registrations (presence_hosts)",
 		"create index sr_contact on sip_registrations (contact)",
@@ -5911,15 +5921,37 @@ int sofia_glue_init_sql(sofia_profile_t *profile)
 		"create index ss_proto on sip_subscriptions (proto)",
 		"create index ss_sub_to_user on sip_subscriptions (sub_to_user)",
 		"create index ss_sub_to_host on sip_subscriptions (sub_to_host)",
+		"create index ss_expires on sip_subscriptions (expires)",
+		"create index ss_orig_proto on sip_subscriptions (orig_proto)",
+		"create index ss_network_port on sip_subscriptions (network_port)",
+		"create index ss_profile_name on sip_subscriptions (profile_name)",
+		"create index ss_version on sip_subscriptions (version)",
+		"create index ss_full_from on sip_subscriptions (full_from)",
+		"create index ss_contact on sip_subscriptions (contact)",
 		"create index sd_uuid on sip_dialogs (uuid)",
 		"create index sd_hostname on sip_dialogs (hostname)",
 		"create index sd_presence_data on sip_dialogs (presence_data)",
 		"create index sd_call_info on sip_dialogs (call_info)",
 		"create index sd_call_info_state on sip_dialogs (call_info_state)",
 		"create index sd_expires on sip_dialogs (expires)",
+		"create index sd_rcd on sip_dialogs (rcd)",
+		"create index sd_sip_to_tag on sip_dialogs (sip_to_tag)",
+		"create index sd_sip_from_user on sip_dialogs (sip_from_user)",
+		"create index sd_sip_from_host on sip_dialogs (sip_from_host)",
+		"create index sd_sip_to_host on sip_dialogs (sip_to_host)",
+		"create index sd_presence_id on sip_dialogs (presence_id)",
+		"create index sd_call_id on sip_dialogs (call_id)",
+		"create index sd_sip_from_tag on sip_dialogs (sip_from_tag)",
 		"create index sp_hostname on sip_presence (hostname)",
+		"create index sp_open_closed on sip_presence (open_closed)",
+		"create index sp_sip_user on sip_presence (sip_user)",
+		"create index sp_sip_host on sip_presence (sip_host)",
+		"create index sp_profile_name on sip_presence (profile_name)",
+		"create index sp_expires on sip_presence (expires)",
 		"create index sa_nonce on sip_authentication (nonce)",
 		"create index sa_hostname on sip_authentication (hostname)",
+		"create index sa_expires on sip_authentication (expires)",
+		"create index sa_last_nc on sip_authentication (last_nc)",
 		"create index ssa_hostname on sip_shared_appearance_subscriptions (hostname)",
 		"create index ssa_network_ip on sip_shared_appearance_subscriptions (network_ip)",
 		"create index ssa_subscriber on sip_shared_appearance_subscriptions (subscriber)",
@@ -5969,12 +6001,14 @@ int sofia_glue_init_sql(sofia_profile_t *profile)
 	free(test_sql);
 
 
-	test_sql = switch_mprintf("delete from sip_subscriptions where hostname='%q' and version < 0 and network_ip like '%%' and network_port like '%%'",
+	test_sql = switch_mprintf("delete from sip_subscriptions where hostname='%q' "
+							  "and (version < 0 or orig_proto like '%%' or network_ip like '%%' or network_port like '%%')",
 							  mod_sofia_globals.hostname);
 	switch_cache_db_test_reactive(dbh, test_sql, "DROP TABLE sip_subscriptions", sub_sql);
 
 	free(test_sql);
-	test_sql = switch_mprintf("delete from sip_dialogs where hostname='%q' and expires <> -9999 or rpid='' or from_tag=''", mod_sofia_globals.hostname);
+	test_sql = switch_mprintf("delete from sip_dialogs where hostname='%q' and (expires <> -9999 or rpid='' or sip_from_tag='' or rcd > 0)",
+							  mod_sofia_globals.hostname);
 
 
 	switch_cache_db_test_reactive(dbh, test_sql, "DROP TABLE sip_dialogs", dialog_sql);

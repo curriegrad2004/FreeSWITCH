@@ -3142,17 +3142,29 @@ SWITCH_DECLARE(char *) switch_ivr_check_presence_mapping(const char *exten_name,
 	char *cf = "presence_map.conf";
 	switch_xml_t cfg, xml, x_domains, x_domain, x_exten;
 	char *r = NULL;
+	switch_event_t *params = NULL;
 	switch_regex_t *re = NULL;
 	int proceed = 0, ovector[100];
 
-	if (!(xml = switch_xml_open_cfg(cf, &cfg, NULL))) {
+	switch_event_create(&params, SWITCH_EVENT_REQUEST_PARAMS);
+	switch_assert(params);
+
+	if ( !zstr(domain_name) ) {
+		switch_event_add_header_string(params, SWITCH_STACK_BOTTOM, "domain", domain_name);
+	}
+
+	if ( !zstr(exten_name) ) {
+		switch_event_add_header_string(params, SWITCH_STACK_BOTTOM, "exten", exten_name);
+	}
+
+	if (!(xml = switch_xml_open_cfg(cf, &cfg, params))) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", cf);
-		return NULL;
+		goto end;
 	}
 
 	if (!(x_domains = switch_xml_child(cfg, "domains"))) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Can't find any domains!\n");
-		return NULL;
+		goto end;
 	}
 
 	for (x_domain = switch_xml_child(x_domains, "domain"); x_domain; x_domain = x_domain->next) {
@@ -3163,7 +3175,7 @@ SWITCH_DECLARE(char *) switch_ivr_check_presence_mapping(const char *exten_name,
 			const char *regex = switch_xml_attr(x_exten, "regex");
 			const char *proto = switch_xml_attr(x_exten, "proto");
 			
-			if (regex && proto) {
+			if (!zstr(regex) && !zstr(proto)) {
 				proceed = switch_regex_perform(exten_name, regex, &re, ovector, sizeof(ovector) / sizeof(ovector[0]));
 				switch_regex_safe_free(re);
 				
@@ -3179,13 +3191,28 @@ SWITCH_DECLARE(char *) switch_ivr_check_presence_mapping(const char *exten_name,
 	}
 
  end:
-	
+	switch_event_destroy(&params);
+
 	if (xml) {
 		switch_xml_free(xml);
 	}
 
 	return r;
 	
+}
+
+SWITCH_DECLARE(switch_status_t) switch_ivr_kill_uuid(const char *uuid, switch_call_cause_t cause)
+{
+	switch_core_session_t *session;
+
+	if (zstr(uuid) || !(session = switch_core_session_locate(uuid))) {
+		return SWITCH_STATUS_FALSE;
+	} else {
+		switch_channel_t *channel = switch_core_session_get_channel(session);
+		switch_channel_hangup(channel, cause);
+		switch_core_session_rwunlock(session);
+		return SWITCH_STATUS_SUCCESS;
+	}
 }
 
 

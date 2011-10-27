@@ -1748,6 +1748,13 @@ SWITCH_DECLARE(switch_core_session_t *) switch_core_session_request_xml(switch_e
 	}
 
 
+	if (!channel || !switch_channel_get_caller_profile(channel)) {
+		if (session) {
+			switch_core_session_destroy(&session);
+		}
+	}
+
+
 	return session;
 }
 
@@ -2077,7 +2084,8 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_execute_application_get_flag
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, 
 						  "%s Channel is hungup and application '%s' does not have the zombie_exec flag.\n",
 						  switch_channel_get_name(session->channel), app);
-		return SWITCH_STATUS_IGNORE;
+
+		switch_goto_status(SWITCH_STATUS_IGNORE, done);
 	}
 
 	if (!arg && strstr(app, "::")) {
@@ -2087,7 +2095,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_execute_application_get_flag
 	if ((application_interface = switch_loadable_module_get_application_interface(app)) == 0) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid Application %s\n", app);
 		switch_channel_hangup(session->channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
-		return SWITCH_STATUS_FALSE;
+		switch_goto_status(SWITCH_STATUS_FALSE, done);
 	}
 
 	if (!application_interface->application_function) {
