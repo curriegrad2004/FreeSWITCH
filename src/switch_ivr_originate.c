@@ -2462,9 +2462,16 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 					
 					if (fail_on_single_reject_var) {
 						const char *cause_str = switch_channel_cause2str(reason);
+						int neg = *fail_on_single_reject_var == '!';
+						int pos = !!switch_stristr(cause_str, fail_on_single_reject_var);
+
+						if (neg) {
+							pos = !pos;
+						}
+
 						check_reject = 0;
 
-						if (fail_on_single_reject == 1 || switch_stristr(cause_str, fail_on_single_reject_var)) {
+						if (fail_on_single_reject == 1 || pos) {
 							force_reason = reason;
 							status = SWITCH_STATUS_FALSE;
 							goto outer_for;
@@ -2747,8 +2754,16 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 								pchannel = switch_core_session_get_channel(originate_status[i].peer_session);
 
 								if (switch_channel_down(pchannel)) {
+									int neg, pos;
 									cause_str = switch_channel_cause2str(switch_channel_get_cause(pchannel));
-									if (switch_stristr(cause_str, fail_on_single_reject_var)) {
+									neg = *fail_on_single_reject_var == '!';
+									pos = !!switch_stristr(cause_str, fail_on_single_reject_var);
+
+									if (neg) {
+										pos = !pos;
+									}
+									
+									if (pos) {
 										ok = 0;
 										break;
 									}
@@ -3310,6 +3325,10 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 					switch_channel_set_variable(caller_channel, buf, buf2);
 				}
 
+				if (caller_channel && switch_channel_test_flag(caller_channel, CF_INTERCEPTED)) {
+					*cause = SWITCH_CAUSE_PICKED_OFF;
+				}
+
 				if (!*cause) {
 					if (reason) {
 						*cause = reason;
@@ -3419,6 +3438,9 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 					if (!(state == CS_RESET || switch_channel_test_flag(originate_status[i].peer_channel, CF_TRANSFER) ||
 						  switch_channel_test_flag(originate_status[i].peer_channel, CF_REDIRECT) ||
 						  switch_channel_test_flag(originate_status[i].peer_channel, CF_BRIDGED))) {
+						if (caller_channel && switch_channel_test_flag(caller_channel, CF_INTERCEPTED)) {
+							switch_channel_set_flag(originate_status[i].peer_channel, CF_INTERCEPT);
+						}
 						switch_channel_hangup(originate_status[i].peer_channel, *cause);
 					}
 				}
@@ -3430,34 +3452,42 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 			if (status == SWITCH_STATUS_SUCCESS) {
 				goto outer_for;
 			} else {
-				int ok = 0;
+				int ok = 1;
 
-				if (fail_on_single_reject && check_reject) {
-
-					if (!switch_true(fail_on_single_reject_var)) {
-						ok = 1;
-
-						for (i = 0; i < and_argc; i++) {
-							switch_channel_t *pchannel;
-							const char *cause_str;
+				if (fail_on_single_reject && check_reject && !switch_true(fail_on_single_reject_var)) {
+					for (i = 0; i < and_argc; i++) {
+						switch_channel_t *pchannel;
+						const char *cause_str;
 							
-							if (!originate_status[i].peer_session) {
-								continue;
+						if (!originate_status[i].peer_session) {
+							continue;
+						}
+							
+						pchannel = switch_core_session_get_channel(originate_status[i].peer_session);
+						wait_for_cause(pchannel);
+
+						if (switch_channel_down(pchannel)) {
+							int neg, pos;
+								
+							cause_str = switch_channel_cause2str(switch_channel_get_cause(pchannel));
+
+							neg = *fail_on_single_reject_var == '!';
+							pos = !!switch_stristr(cause_str, fail_on_single_reject_var);
+
+							if (neg) {
+								pos = !pos;
 							}
-							pchannel = switch_core_session_get_channel(originate_status[i].peer_session);
-							wait_for_cause(pchannel);
-							if (switch_channel_down(pchannel)) {
-								cause_str = switch_channel_cause2str(switch_channel_get_cause(pchannel));
-								if (switch_stristr(cause_str, fail_on_single_reject_var)) {
-									ok = 0;
-									break;
-								}
+								
+								
+							if (pos) {
+								ok = 0;
+								break;
 							}
 						}
 					}
 				}
-
-				if (ok) {
+				
+				if (!ok) {
 					goto outer_for;
 				}
 

@@ -545,7 +545,6 @@ void sofia_handle_sip_i_bye(switch_core_session_t *session, int status,
 	switch_snprintf(st, sizeof(st), "%d", status);
 	switch_channel_set_variable(channel, "sip_term_status", st);
 	switch_snprintf(st, sizeof(st), "sip:%d", status);
-	switch_channel_set_variable_partner(channel, SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE, st);
 	switch_channel_set_variable(channel, SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE, st);
 
 	if (phrase) {
@@ -6027,7 +6026,6 @@ static void sofia_handle_sip_i_state(switch_core_session_t *session, int status,
 				switch_snprintf(st, sizeof(st), "%d", status);
 				switch_channel_set_variable(channel, "sip_term_status", st);
 				switch_snprintf(st, sizeof(st), "sip:%d", status);
-				switch_channel_set_variable_partner(channel, SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE, st);
 				switch_channel_set_variable(channel, SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE, st);
 				if (phrase) {
 					switch_channel_set_variable_partner(channel, "sip_hangup_phrase", phrase);
@@ -7357,7 +7355,7 @@ void sofia_handle_sip_i_invite(nua_t *nua, sofia_profile_t *profile, nua_handle_
 
 		transport = sofia_glue_url2transport(sip->sip_contact->m_url);
 
-		tech_pvt->record_route =
+		tech_pvt->record_route=
 			switch_core_session_sprintf(session,
 										"sip:%s@%s%s%s:%d;transport=%s",
 										sip->sip_contact->m_url->url_user,
@@ -7404,16 +7402,12 @@ void sofia_handle_sip_i_invite(nua_t *nua, sofia_profile_t *profile, nua_handle_
 	}
 
 	if (sip->sip_from && sip->sip_from->a_url) {
-		char *tmp;
 		from_user = sip->sip_from->a_url->url_user;
 		from_host = sip->sip_from->a_url->url_host;
 		channel_name = url_set_chanvars(session, sip->sip_from->a_url, sip_from);
 
-		if (sip->sip_from->a_url->url_params && (tmp = sofia_glue_find_parameter(sip->sip_from->a_url->url_params, "isup-oli="))) {
-			aniii = switch_core_session_strdup(session, tmp + 9);
-			if ((tmp = strchr(aniii, ';'))) {
-				tmp = '\0';
-			}
+		if (sip->sip_from->a_url->url_params) {
+			aniii = switch_find_parameter(sip->sip_from->a_url->url_params, "isup-oli", switch_core_session_get_pool(session));
 		}
 
 		if (!zstr(from_user)) {
@@ -7438,6 +7432,16 @@ void sofia_handle_sip_i_invite(nua_t *nua, sofia_profile_t *profile, nua_handle_
 		} else {
 			displayname = zstr(from_user) ? "unknown" : from_user;
 		}
+	}
+
+	if (sip->sip_record_route) {
+		char *rr = sip_header_as_string(nh->nh_home, (void *) sip->sip_record_route);
+		switch_channel_set_variable(channel, "sip_invite_record_route", rr);
+	}
+
+	if (sip->sip_via) {
+		char *via = sip_header_as_string(nh->nh_home, (void *) sip->sip_via);
+		switch_channel_set_variable(channel, "sip_invite_via", via);
 	}
 
 	if ((rpid = sip_remote_party_id(sip))) {
@@ -7755,7 +7759,7 @@ void sofia_handle_sip_i_invite(nua_t *nua, sofia_profile_t *profile, nua_handle_
 
 
 	if (sip->sip_request->rq_url->url_params) {
-		gw_param_name = sofia_glue_find_parameter_value(session, sip->sip_request->rq_url->url_params, "gw=");
+		gw_param_name = switch_find_parameter(sip->sip_request->rq_url->url_params, "gw", switch_core_session_get_pool(session));
 	}
 
 	if (strstr(destination_number, "gw+")) {
