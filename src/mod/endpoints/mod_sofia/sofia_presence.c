@@ -2788,7 +2788,7 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 	}
 
 	if ((exp_delta = sip->sip_expires ? sip->sip_expires->ex_delta : 3600)) {
-		if (profile->force_subscription_expires) {
+		if ((profile->force_subscription_expires > 0) && (profile->force_subscription_expires < (uint32_t)exp_delta)) {
 			exp_delta = profile->force_subscription_expires;
 		}
 	}
@@ -2840,7 +2840,7 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 		sql = switch_mprintf("update sip_subscriptions "
 							 "set expires=%ld "
 							 "where call_id='%q' and event='dialog' and hostname='%q' ",
-							 (long) switch_epoch_time_now(NULL) + (exp_delta * 2),
+							 (long) switch_epoch_time_now(NULL) + exp_delta,
 							 call_id,
 							 mod_sofia_globals.hostname);
 		
@@ -2888,7 +2888,7 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 								 proto, from_user, from_host, to_user, to_host, profile->presence_hosts ? profile->presence_hosts : to_host,
 								 event, contact_str, call_id, full_from, full_via,
 								 //sofia_test_pflag(profile, PFLAG_MULTIREG) ? switch_epoch_time_now(NULL) + exp_delta : exp_delta * -1,
-								 (long) switch_epoch_time_now(NULL) + (exp_delta * 2),
+								 (long) switch_epoch_time_now(NULL) + exp_delta,
 								 full_agent, accept, profile->name, mod_sofia_globals.hostname, np.network_port, np.network_ip, orig_proto);
 
 			switch_assert(sql != NULL);
@@ -2948,7 +2948,7 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 			
 		if (nh && nh->nh_ds && nh->nh_ds->ds_usage) {
 			/* nua_dialog_usage_set_refresh_range(nh->nh_ds->ds_usage, exp_delta + SUB_OVERLAP, exp_delta + SUB_OVERLAP); */
-			nua_dialog_usage_set_refresh_range(nh->nh_ds->ds_usage, exp_delta * 2, exp_delta * 2);
+			nua_dialog_usage_set_refresh_range(nh->nh_ds->ds_usage, exp_delta, exp_delta);
 		}
 
 		if (contactstr && (p = strchr(contactstr, '@'))) {
@@ -3171,7 +3171,7 @@ sofia_gateway_subscription_t *sofia_find_gateway_subscription(sofia_gateway_t *g
 void sofia_presence_handle_sip_r_subscribe(int status,
 										   char const *phrase,
 										   nua_t *nua, sofia_profile_t *profile, nua_handle_t *nh, sofia_private_t *sofia_private, sip_t const *sip,
-								sofia_dispatch_event_t *de,
+										   sofia_dispatch_event_t *de,
 										   tagi_t tags[])
 {
 	sip_event_t const *o = NULL;
@@ -3211,6 +3211,7 @@ void sofia_presence_handle_sip_r_subscribe(int status,
 	/* Update the subscription status for the subscription */
 	switch (status) {
 	case 200:
+	case 202:
 		/* TODO: in the spec it is possible for the other side to change the original expiry time,
 		 * this needs to be researched (eg, what sip header this information will be in) and implemented.
 		 * Although, since it seems the sofia stack is pretty much handling the subscription expiration
@@ -3226,10 +3227,11 @@ void sofia_presence_handle_sip_r_subscribe(int status,
 		gw_sub_ptr->state = SUB_STATE_FAILED;
 
 		if (sofia_private) {
-			nua_handle_destroy(sofia_private->gateway->sub_nh);
-			sofia_private->gateway->sub_nh = NULL;
-			nua_handle_bind(sofia_private->gateway->sub_nh, NULL);
-			sofia_private_free(sofia_private);
+			if (sofia_private->gateway->sub_nh) {
+				nua_handle_bind(sofia_private->gateway->sub_nh, NULL);
+				nua_handle_destroy(sofia_private->gateway->sub_nh);
+				sofia_private->gateway->sub_nh = NULL;
+			}
 		} else {
 			nua_handle_destroy(nh);
 		}
@@ -3323,7 +3325,7 @@ void sofia_presence_handle_sip_i_publish(nua_t *nua, sofia_profile_t *profile, n
 	}
 		
 	exp_delta = (sip->sip_expires ? sip->sip_expires->ex_delta : 3600);
-	if (profile->force_publish_expires) {
+	if ((profile->force_publish_expires > 0) && (profile->force_publish_expires < (uint32_t)exp_delta)) {
 		exp_delta = profile->force_publish_expires;
 	}
 

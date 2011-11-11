@@ -1127,6 +1127,28 @@ SWITCH_DECLARE(switch_status_t) switch_channel_export_variable_printf(switch_cha
 	return status;
 }
 
+
+SWITCH_DECLARE(uint32_t) switch_channel_del_variable_prefix(switch_channel_t *channel, const char *prefix)
+{
+	switch_event_t *event;
+	switch_event_header_t *hp;
+	uint32_t r = 0;
+
+	switch_channel_get_variables(channel, &event);
+
+	if (event) {
+		for (hp = event->headers; hp; hp = hp->next) {
+			if (zstr(prefix) || !strncasecmp(hp->name, prefix, strlen(prefix))) {
+				switch_channel_set_variable(channel, hp->name, NULL);
+			}
+		}
+	}
+
+	switch_event_destroy(&event);
+
+	return r;
+}
+
 SWITCH_DECLARE(switch_status_t) switch_channel_set_variable_var_check(switch_channel_t *channel,
 																	  const char *varname, const char *value, switch_bool_t var_check)
 {
@@ -2227,6 +2249,7 @@ SWITCH_DECLARE(void) switch_channel_event_set_extended_data(switch_channel_t *ch
 		event->event_id == SWITCH_EVENT_CHANNEL_HANGUP_COMPLETE ||
 		event->event_id == SWITCH_EVENT_REQUEST_PARAMS ||
 		event->event_id == SWITCH_EVENT_CHANNEL_DATA ||
+		event->event_id == SWITCH_EVENT_CHANNEL_EXECUTE ||
 		event->event_id == SWITCH_EVENT_CHANNEL_EXECUTE_COMPLETE ||
 		event->event_id == SWITCH_EVENT_CHANNEL_DESTROY ||
 		event->event_id == SWITCH_EVENT_SESSION_HEARTBEAT ||
@@ -2789,6 +2812,7 @@ SWITCH_DECLARE(switch_channel_state_t) switch_channel_perform_hangup(switch_chan
 	if (channel->state < CS_HANGUP) {
 		switch_channel_state_t last_state;
 		switch_event_t *event;
+		const char *var;
 
 		switch_mutex_lock(channel->state_mutex);
 		last_state = channel->state;
@@ -2805,6 +2829,13 @@ SWITCH_DECLARE(switch_channel_state_t) switch_channel_perform_hangup(switch_chan
 		channel->hangup_cause = hangup_cause;
 		switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, switch_channel_get_uuid(channel), SWITCH_LOG_NOTICE, "Hangup %s [%s] [%s]\n",
 						  channel->name, state_names[last_state], switch_channel_cause2str(channel->hangup_cause));
+
+
+		switch_channel_set_variable_partner(channel, "last_bridge_hangup_cause", switch_channel_cause2str(hangup_cause));
+
+		if ((var = switch_channel_get_variable(channel, SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE))) {
+			switch_channel_set_variable_partner(channel, "last_bridge_" SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE, var);
+		}
 
 
 		if (!switch_core_session_running(channel->session) && !switch_core_session_started(channel->session)) {

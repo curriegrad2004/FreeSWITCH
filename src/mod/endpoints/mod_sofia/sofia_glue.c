@@ -1941,6 +1941,8 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 	sofia_destination_t *dst = NULL;
 	sofia_cid_type_t cid_type = tech_pvt->profile->cid_type;
 	sip_cseq_t *cseq = NULL;
+	const char *invite_record_route = switch_channel_get_variable(tech_pvt->channel, "sip_invite_record_route");
+	const char *invite_via = switch_channel_get_variable(tech_pvt->channel, "sip_invite_via");
 	const char *invite_full_via = switch_channel_get_variable(tech_pvt->channel, "sip_invite_full_via");
 	const char *invite_route_uri = switch_channel_get_variable(tech_pvt->channel, "sip_invite_route_uri");
 	const char *invite_full_from = switch_channel_get_variable(tech_pvt->channel, "sip_invite_full_from");
@@ -1950,7 +1952,20 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 	const char *force_full_from = switch_channel_get_variable(tech_pvt->channel, "sip_force_full_from");
 	const char *force_full_to = switch_channel_get_variable(tech_pvt->channel, "sip_force_full_to");
 	char *mp = NULL, *mp_type = NULL;
+	char *record_route = NULL;
 
+
+
+	if (sofia_test_flag(tech_pvt, TFLAG_RECOVERING)) {
+		if (!zstr(invite_record_route)) {
+			record_route = switch_core_session_sprintf(session, "Record-Route: %s", invite_record_route);
+		}
+		if (!zstr(invite_via)) {
+			tech_pvt->user_via = switch_core_session_strdup(session, invite_via);
+		}
+	}
+	
+	
 	rep = switch_channel_get_variable(channel, SOFIA_REPLACES_HEADER);
 
 	switch_assert(tech_pvt != NULL);
@@ -2224,6 +2239,7 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 		if (!(tech_pvt->nh = nua_handle(tech_pvt->profile->nua, NULL,
 										NUTAG_URL(url_str),
 										TAG_IF(call_id, SIPTAG_CALL_ID_STR(call_id)),
+										TAG_IF(!zstr(record_route), SIPTAG_HEADER_STR(record_route)),
 										SIPTAG_TO_STR(to_str), SIPTAG_FROM_STR(from_str), SIPTAG_CONTACT_STR(invite_contact), TAG_END()))) {
 
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_CRIT, 
@@ -3324,6 +3340,9 @@ switch_status_t sofia_glue_activate_rtp(private_object_t *tech_pvt, switch_rtp_f
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), 
 									  SWITCH_LOG_DEBUG, "Setting Jitterbuffer to %dms (%d frames)\n", jb_msec, qlen);
 					switch_channel_set_flag(tech_pvt->channel, CF_JITTERBUFFER);
+					if (!switch_false(switch_channel_get_variable(tech_pvt->channel, "sip_jitter_buffer_plc"))) {
+						switch_channel_set_flag(tech_pvt->channel, CF_JITTERBUFFER_PLC);
+					}
 				} else {
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), 
 									  SWITCH_LOG_WARNING, "Error Setting Jitterbuffer to %dms (%d frames)\n", jb_msec, qlen);
@@ -4429,14 +4448,18 @@ uint8_t sofia_glue_negotiate_sdp(switch_core_session_t *session, const char *r_s
 				int pass = sofia_test_pflag(tech_pvt->profile, PFLAG_T38_PASSTHRU);
 
 				if (var) {
-					pass = switch_true(var);
+					if (!(pass = switch_true(var))) {
+						if (!strcasecmp(var, "once")) {
+							pass = 2;
+						}
+					}
 				}
 
-				/* can't remember if this is necessary but its causing a bug so i'll leave this comment here to remind me
-				if (sofia_test_flag(tech_pvt, TFLAG_T38_PASSTHRU)) {
+
+				if (pass == 2 && sofia_test_flag(tech_pvt, TFLAG_T38_PASSTHRU)) {
 					pass = 0;
 				}
-				*/
+
 
 				if (switch_channel_test_flag(tech_pvt->channel, CF_PROXY_MODE) || 
 					switch_channel_test_flag(tech_pvt->channel, CF_PROXY_MEDIA) || !switch_rtp_ready(tech_pvt->rtp_session)) {
