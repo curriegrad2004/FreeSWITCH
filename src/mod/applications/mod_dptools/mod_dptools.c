@@ -30,6 +30,7 @@
  * Bret McDanel <trixter AT 0xdecafbad dot com>
  * Luke Dashjr <luke@openmethods.com> (OpenMethods, LLC)
  * Cesar Cepeda <cesar@auronix.com>
+ * Chris Rienzo <chris@rienzo.net>
  *
  * mod_dptools.c -- Raw Audio File Streaming Application Module
  *
@@ -159,6 +160,8 @@ static switch_status_t digit_action_callback(switch_ivr_dmachine_match_t *match)
 	switch_channel_t *channel;
 	switch_core_session_t *use_session = act->session;
 	int x = 0;
+	char *flags = "";
+
 	if (switch_ivr_dmachine_get_target(match->dmachine) == DIGIT_TARGET_PEER || act->target == DIGIT_TARGET_PEER || act->target == DIGIT_TARGET_BOTH) {
 		if (switch_core_session_get_partner(act->session, &use_session) != SWITCH_STATUS_SUCCESS) {
 			use_session = act->session;
@@ -168,7 +171,7 @@ static switch_status_t digit_action_callback(switch_ivr_dmachine_match_t *match)
  top:
 	x++;
 
-	string = act->string;
+	string = switch_core_session_strdup(use_session, act->string);
 	exec = 0;
 
 	channel = switch_core_session_get_channel(use_session);
@@ -180,16 +183,31 @@ static switch_status_t digit_action_callback(switch_ivr_dmachine_match_t *match)
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(act->session), SWITCH_LOG_DEBUG, "%s Digit match binding [%s][%s]\n", 
 						  switch_channel_get_name(channel), act->string, act->value);
 
-		if (!strncasecmp(string, "exec:", 5)) {
-			string += 5;
-			exec = 1;
+		if (!strncasecmp(string, "exec", 4)) {
+			char *e;
+			
+			string += 4;
+			if (*string == ':') {
+				string++;
+				exec = 1;
+			} else if (*string == '[') {
+				flags = string;
+				if ((e = switch_find_end_paren(flags, '[', ']'))) {
+					if (e && *++e == ':') {
+						flags++;
+						*e++ = '\0';
+						string = e;
+						exec = strchr(flags, 'i') ? 2 : 1;
+					}
+				}
+			}
 		}
 
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, string, act->value);
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "digits", match->match_digits);
 
 		if (exec) {
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "execute", exec == 2 ? "non-blocking" : "blocking");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "execute", exec == 1 ? "non-blocking" : "blocking");
 		} 
 
 		if ((status = switch_core_session_queue_event(use_session, &event)) != SWITCH_STATUS_SUCCESS) {
@@ -200,8 +218,18 @@ static switch_status_t digit_action_callback(switch_ivr_dmachine_match_t *match)
 	}
 
 	if (exec) {
-		char *cmd = switch_core_session_sprintf(use_session, "%s::%s", string, act->value);
-		switch_ivr_broadcast_in_thread(use_session, cmd, SMF_ECHO_ALEG | (act->target == DIGIT_TARGET_BOTH ? 0 : SMF_HOLD_BLEG));
+		if (exec == 2) {
+			switch_core_session_execute_application(use_session, string, act->value);
+		} else {
+			char *cmd = switch_core_session_sprintf(use_session, "%s::%s", string, act->value);
+			switch_media_flag_enum_t exec_flags = SMF_ECHO_ALEG;
+
+			if (act->target != DIGIT_TARGET_BOTH && !strchr(flags, 'H')) {
+				exec_flags |= SMF_HOLD_BLEG;
+			}
+
+			switch_ivr_broadcast_in_thread(use_session, cmd, exec_flags);
+		}
 	}
 	
 
@@ -410,6 +438,51 @@ SWITCH_STANDARD_APP(detect_speech_function)
 	}
 }
 
+#define PLAY_AND_DETECT_SPEECH_SYNTAX "<file> detect:<engine> {param1=val1,param2=val2}<grammar>"
+SWITCH_STANDARD_APP(play_and_detect_speech_function)
+{
+	switch_channel_t *channel = switch_core_session_get_channel(session);
+	char *argv[2];
+	char *lbuf = NULL;
+	const char *response = "DONE";
+	char *detect = NULL;
+
+	switch_channel_set_variable(channel, "detect_speech_result", "");
+
+	if (zstr(data) || !(lbuf = switch_core_session_strdup(session, data)) || !(detect = strstr(lbuf, "detect:"))) {
+		/* bad input */
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Usage: %s\n", PLAY_AND_DETECT_SPEECH_SYNTAX);
+		response = "USAGE ERROR";
+		goto done;
+	}
+
+	/* split input at "detect:" */
+	detect[0] = '\0';
+	detect += 7;
+	if (zstr(detect)) {
+		/* bad input */
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Usage: %s\n", PLAY_AND_DETECT_SPEECH_SYNTAX);
+		response = "USAGE ERROR";
+		goto done;
+	}
+
+	/* need to have at 2 parameters for detect */
+	if (switch_separate_string(detect, ' ', argv, (sizeof(argv) / sizeof(argv[0]))) == 2) {
+		char *file = lbuf;
+		char *engine = argv[0];
+		char *grammar = argv[1];
+		char *result = NULL;
+		switch_ivr_play_and_detect_speech(session, file, engine, grammar, &result);
+		switch_channel_set_variable(channel, "detect_speech_result", result);
+	} else {
+		/* bad input */
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Usage: %s\n", PLAY_AND_DETECT_SPEECH_SYNTAX);
+		response = "USAGE ERROR";
+	}
+
+done:
+	switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, response);
+}
 
 #define SCHED_HEARTBEAT_SYNTAX "[0|<seconds>]"
 SWITCH_STANDARD_APP(sched_heartbeat_function)
@@ -3134,7 +3207,7 @@ static switch_call_cause_t user_outgoing_channel(switch_core_session_t *session,
 												 switch_core_session_t **new_session, switch_memory_pool_t **pool, switch_originate_flag_t flags,
 												 switch_call_cause_t *cancel_cause)
 {
-	switch_xml_t xml = NULL, x_user = NULL, x_param, x_params;
+	switch_xml_t x_user = NULL, x_param, x_params;
 	char *user = NULL, *domain = NULL, *dup_domain = NULL;
 	const char *dest = NULL;
 	switch_call_cause_t cause = SWITCH_CAUSE_NONE;
@@ -3299,8 +3372,8 @@ static switch_call_cause_t user_outgoing_channel(switch_core_session_t *session,
 			switch_safe_free(d_dest);
 		}
 	}
-
-	if (new_channel && xml) {
+	
+	if (new_channel && x_user) {
 		if ((x_params = switch_xml_child(x_user, "variables"))) {
 			for (x_param = switch_xml_child(x_params, "variable"); x_param; x_param = x_param->next) {
 				const char *pvar = switch_xml_attr(x_param, "name");
@@ -3312,7 +3385,9 @@ static switch_call_cause_t user_outgoing_channel(switch_core_session_t *session,
 
   done:
 
-	switch_xml_free(xml);
+	if (x_user) {
+		switch_xml_free(x_user);
+	}
 
 	if (params) {
 		switch_event_destroy(&params);
@@ -3971,6 +4046,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_dptools_load)
 	SWITCH_ADD_APP(app_interface, "remove_bugs", "Remove media bugs", "Remove all media bugs from a channel.", remove_bugs_function, "", SAF_NONE);
 	SWITCH_ADD_APP(app_interface, "break", "Break", "Set the break flag.", break_function, "", SAF_SUPPORT_NOMEDIA);
 	SWITCH_ADD_APP(app_interface, "detect_speech", "Detect speech", "Detect speech on a channel.", detect_speech_function, DETECT_SPEECH_SYNTAX, SAF_NONE);
+	SWITCH_ADD_APP(app_interface, "play_and_detect_speech", "Play and do speech recognition", "Play and do speech recognition", play_and_detect_speech_function, PLAY_AND_DETECT_SPEECH_SYNTAX, SAF_NONE);
 	SWITCH_ADD_APP(app_interface, "ivr", "Run an ivr menu", "Run an ivr menu.", ivr_application_function, "<menu_name>", SAF_NONE);
 	SWITCH_ADD_APP(app_interface, "redirect", "Send session redirect", "Send a redirect message to a session.", redirect_function, "<redirect_data>",
 				   SAF_SUPPORT_NOMEDIA);

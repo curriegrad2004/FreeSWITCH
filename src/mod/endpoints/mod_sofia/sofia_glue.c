@@ -1943,7 +1943,6 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 	sip_cseq_t *cseq = NULL;
 	const char *invite_record_route = switch_channel_get_variable(tech_pvt->channel, "sip_invite_record_route");
 	const char *invite_via = switch_channel_get_variable(tech_pvt->channel, "sip_invite_via");
-	const char *invite_full_via = switch_channel_get_variable(tech_pvt->channel, "sip_invite_full_via");
 	const char *invite_route_uri = switch_channel_get_variable(tech_pvt->channel, "sip_invite_route_uri");
 	const char *invite_full_from = switch_channel_get_variable(tech_pvt->channel, "sip_invite_full_from");
 	const char *invite_full_to = switch_channel_get_variable(tech_pvt->channel, "sip_invite_full_to");
@@ -1954,18 +1953,20 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 	char *mp = NULL, *mp_type = NULL;
 	char *record_route = NULL;
 
-
-
 	if (sofia_test_flag(tech_pvt, TFLAG_RECOVERING)) {
+		const char *recover_contact = switch_channel_get_variable(tech_pvt->channel, "sip_recover_contact");
+
 		if (!zstr(invite_record_route)) {
 			record_route = switch_core_session_sprintf(session, "Record-Route: %s", invite_record_route);
 		}
-		if (!zstr(invite_via)) {
-			tech_pvt->user_via = switch_core_session_strdup(session, invite_via);
+		
+		if (recover_contact) {
+			char *tmp = switch_core_session_strdup(session, recover_contact);
+			tech_pvt->redirected = sofia_glue_get_url_from_contact(tmp, 0);
 		}
 	}
-	
-	
+
+
 	rep = switch_channel_get_variable(channel, SOFIA_REPLACES_HEADER);
 
 	switch_assert(tech_pvt != NULL);
@@ -2463,7 +2464,7 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 				   TAG_IF(invite_full_to, SIPTAG_TO_STR(invite_full_to)),
 				   TAG_IF(tech_pvt->redirected, NUTAG_URL(tech_pvt->redirected)),
 				   TAG_IF(!zstr(tech_pvt->user_via), SIPTAG_VIA_STR(tech_pvt->user_via)),
-				   TAG_IF(!zstr(invite_full_via), SIPTAG_VIA_STR(invite_full_via)),
+				   TAG_IF(!zstr(invite_via), SIPTAG_VIA_STR(invite_via)),
 				   TAG_IF(!zstr(tech_pvt->rpid), SIPTAG_REMOTE_PARTY_ID_STR(tech_pvt->rpid)),
 				   TAG_IF(!zstr(tech_pvt->preferred_id), SIPTAG_P_PREFERRED_IDENTITY_STR(tech_pvt->preferred_id)),
 				   TAG_IF(!zstr(tech_pvt->asserted_id), SIPTAG_P_ASSERTED_IDENTITY_STR(tech_pvt->asserted_id)),
@@ -2497,7 +2498,7 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 				   TAG_IF(invite_full_to, SIPTAG_TO_STR(invite_full_to)),
 				   TAG_IF(tech_pvt->redirected, NUTAG_URL(tech_pvt->redirected)),
 				   TAG_IF(!zstr(tech_pvt->user_via), SIPTAG_VIA_STR(tech_pvt->user_via)),
-				   TAG_IF(!zstr(invite_full_via), SIPTAG_VIA_STR(invite_full_via)),
+				   TAG_IF(!zstr(invite_via), SIPTAG_VIA_STR(invite_via)),
 				   TAG_IF(!zstr(tech_pvt->rpid), SIPTAG_REMOTE_PARTY_ID_STR(tech_pvt->rpid)),
 				   TAG_IF(!zstr(tech_pvt->preferred_id), SIPTAG_P_PREFERRED_IDENTITY_STR(tech_pvt->preferred_id)),
 				   TAG_IF(!zstr(tech_pvt->asserted_id), SIPTAG_P_ASSERTED_IDENTITY_STR(tech_pvt->asserted_id)),
@@ -5390,6 +5391,7 @@ static int recover_callback(void *pArg, int argc, char **argv, char **columnName
 	switch_channel_t *channel;
 	private_object_t *tech_pvt = NULL;
 	const char *tmp;
+	const char *rr;
 
 	xml = switch_xml_parse_str_dynamic(argv[3], SWITCH_TRUE);
 
@@ -5430,20 +5432,22 @@ static int recover_callback(void *pArg, int argc, char **argv, char **columnName
 		} 
 	}
 
+	rr = switch_channel_get_variable(channel, "sip_invite_record_route");
+
 	if (switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_OUTBOUND) {
 		tech_pvt->dest = switch_core_session_sprintf(session, "sip:%s", switch_channel_get_variable(channel, "sip_req_uri"));
-		switch_channel_set_variable(channel, "sip_invite_full_via", switch_channel_get_variable(channel, "sip_full_via"));
-
 		switch_channel_set_variable(channel, "sip_handle_full_from", switch_channel_get_variable(channel, "sip_full_from"));
 		switch_channel_set_variable(channel, "sip_handle_full_to", switch_channel_get_variable(channel, "sip_full_to"));
 	} else {
-
+		
 		tech_pvt->redirected = switch_core_session_sprintf(session, "sip:%s", switch_channel_get_variable(channel, "sip_contact_uri"));
 
-		switch_channel_set_variable_printf(channel, "sip_invite_route_uri", "<sip:%s@%s:%s;lr>",
-										   switch_channel_get_variable(channel, "sip_from_user"),
-										   switch_channel_get_variable(channel, "sip_network_ip"), switch_channel_get_variable(channel, "sip_network_port")
-										   );
+		if (zstr(rr)) {
+			switch_channel_set_variable_printf(channel, "sip_invite_route_uri", "<sip:%s@%s:%s;lr>",
+											   switch_channel_get_variable(channel, "sip_from_user"),
+											   switch_channel_get_variable(channel, "sip_network_ip"), switch_channel_get_variable(channel, "sip_network_port")
+											   );
+		}
 
 		tech_pvt->dest = switch_core_session_sprintf(session, "sip:%s", switch_channel_get_variable(channel, "sip_from_uri"));
 
@@ -5454,6 +5458,10 @@ static int recover_callback(void *pArg, int argc, char **argv, char **columnName
 		if (!switch_channel_get_variable_dup(channel, "sip_handle_full_to", SWITCH_FALSE, -1)) {
 			switch_channel_set_variable(channel, "sip_handle_full_to", switch_channel_get_variable(channel, "sip_full_from"));
 		}
+	}
+
+	if (rr) {
+		switch_channel_set_variable(channel, "sip_invite_route_uri", rr);
 	}
 
 	tech_pvt->dest_to = tech_pvt->dest;
