@@ -508,6 +508,7 @@ switch_status_t sofia_on_hangup(switch_core_session_t *session)
 			}
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Sending BYE to %s\n", switch_channel_get_name(channel));
 			if (!sofia_test_flag(tech_pvt, TFLAG_BYE)) {
+				switch_ivr_parse_all_signal_data(session);
 				nua_bye(tech_pvt->nh,
 						TAG_IF(!zstr(reason), SIPTAG_REASON_STR(reason)),
 						TAG_IF(call_info, SIPTAG_CALL_INFO_STR(call_info)),
@@ -521,6 +522,7 @@ switch_status_t sofia_on_hangup(switch_core_session_t *session)
 					switch_channel_set_variable(channel, "sip_hangup_disposition", "send_cancel");
 				}
 				if (!sofia_test_flag(tech_pvt, TFLAG_BYE)) {
+					switch_ivr_parse_all_signal_data(session);
 					nua_cancel(tech_pvt->nh,
 							   TAG_IF(!zstr(reason), SIPTAG_REASON_STR(reason)), TAG_IF(!zstr(bye_headers), SIPTAG_HEADER_STR(bye_headers)), TAG_END());
 				}
@@ -958,7 +960,6 @@ static switch_status_t sofia_read_frame(switch_core_session_t *session, switch_f
 
 	while (!(tech_pvt->read_codec.implementation && switch_rtp_ready(tech_pvt->rtp_session) && !switch_channel_test_flag(channel, CF_REQ_MEDIA))) {
 		switch_ivr_parse_all_messages(tech_pvt->session);
-
 		if (--sanity && switch_channel_up(channel)) {
 			switch_yield(10000);
 		} else {
@@ -2874,7 +2875,6 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 					stream->write_function(stream, "CALLS-OUT        \t%u\n", profile->ob_calls);
 					stream->write_function(stream, "FAILED-CALLS-OUT \t%u\n", profile->ob_failed_calls);
 				}
-				stream->write_function(stream, "\nRegistrations:\n%s\n", line);
 
 				cb.profile = profile;
 				cb.stream = stream;
@@ -2890,6 +2890,12 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 										 "rpid,expires,user_agent,server_user,server_host,profile_name,hostname,"
 										 "network_ip,network_port,sip_username,sip_realm,mwi_user,mwi_host"
 										 " from sip_registrations where profile_name='%q' and contact like '%%%q%%'", profile->name, argv[3]);
+				}
+				if (!sql && argv[2] && !strcasecmp(argv[2], "reg")) {
+					sql = switch_mprintf("select call_id,sip_user,sip_host,contact,status,"
+										 "rpid,expires,user_agent,server_user,server_host,profile_name,hostname,"
+										 "network_ip,network_port,sip_username,sip_realm,mwi_user,mwi_host"
+										 " from sip_registrations where profile_name='%q'", profile->name);
 				}
 				if (!sql && argv[2] && !strcasecmp(argv[2], "user") && argv[3]) {
 					char *dup = strdup(argv[3]);
@@ -2921,20 +2927,18 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 					switch_safe_free(sqlextra);
 				}
 
-				if (!sql) {
-					sql = switch_mprintf("select call_id,sip_user,sip_host,contact,status,"
-										 "rpid,expires,user_agent,server_user,server_host,profile_name,hostname,"
-										 "network_ip,network_port,sip_username,sip_realm,mwi_user,mwi_host"
-										 " from sip_registrations where profile_name='%q'", profile->name);
+				if (sql) {
+					stream->write_function(stream, "\nRegistrations:\n%s\n", line);
+
+					sofia_glue_execute_sql_callback(profile, profile->ireg_mutex, sql, show_reg_callback, &cb);
+					switch_safe_free(sql);
+
+					stream->write_function(stream, "Total items returned: %d\n", cb.row_process);
+					stream->write_function(stream, "%s\n", line);
 				}
 
-				sofia_glue_execute_sql_callback(profile, profile->ireg_mutex, sql, show_reg_callback, &cb);
-				switch_safe_free(sql);
-
-				stream->write_function(stream, "Total items returned: %d\n", cb.row_process);
-				stream->write_function(stream, "%s\n", line);
-
 				sofia_glue_release_profile(profile);
+
 			} else {
 				stream->write_function(stream, "Invalid Profile!\n");
 			}
@@ -3980,7 +3984,7 @@ SWITCH_STANDARD_API(sofia_function)
 		"                     siptrace <on|off>\n"
 		"                     capture  <on|off>\n"
 		"                     watchdog <on|off>\n\n"
-		"sofia <status|xmlstatus> profile <name> [reg <contact str>] | [pres <pres str>] | [user <user@domain>]\n"
+		"sofia <status|xmlstatus> profile <name> [reg [<contact str>]] | [pres <pres str>] | [user <user@domain>]\n"
 		"sofia <status|xmlstatus> gateway <name>\n\n"
 		"sofia loglevel <all|default|tport|iptsec|nea|nta|nth_client|nth_server|nua|soa|sresolv|stun> [0-9]\n"
 		"sofia tracelevel <console|alert|crit|err|warning|notice|info|debug>\n\n"
