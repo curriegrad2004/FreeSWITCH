@@ -306,6 +306,7 @@ static dm_match_t switch_ivr_dmachine_check_match(switch_ivr_dmachine_t *dmachin
 	for(bp = dmachine->realm->binding_list; bp; bp = bp->next) {
 		if (bp->is_regex) {
 			switch_status_t r_status = switch_regex_match(dmachine->digits, bp->digits);
+			pmatches = 1;
 
 			if (r_status == SWITCH_STATUS_SUCCESS) {
 				if (is_timeout) {
@@ -313,7 +314,6 @@ static dm_match_t switch_ivr_dmachine_check_match(switch_ivr_dmachine_t *dmachin
 					exact_bp = bp;
 					break;
 				}
-				pmatches = 1;
 				best = DM_MATCH_PARTIAL;
 			}
 		} else {
@@ -1353,7 +1353,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_session(switch_core_session
 		msg.message_id = SWITCH_MESSAGE_INDICATE_DISPLAY;
 		switch_core_session_receive_message(session, &msg);
 
-		while (switch_channel_up(tchannel) && switch_channel_ready(channel)) {
+		while (switch_channel_up_nosig(tchannel) && switch_channel_ready(channel)) {
 			uint32_t len = sizeof(buf);
 			switch_event_t *event = NULL;
 			char *fcommand = NULL;
@@ -3285,12 +3285,12 @@ static void *SWITCH_THREAD_FUNC speech_thread(switch_thread_t *thread, void *obj
 
 	sth->ready = 1;
 
-	while (switch_channel_up(channel) && !switch_test_flag(sth->ah, SWITCH_ASR_FLAG_CLOSED)) {
+	while (switch_channel_up_nosig(channel) && !switch_test_flag(sth->ah, SWITCH_ASR_FLAG_CLOSED)) {
 		char *xmlstr = NULL;
 
 		switch_thread_cond_wait(sth->cond, sth->mutex);
 
-		if (switch_channel_down(channel) || switch_test_flag(sth->ah, SWITCH_ASR_FLAG_CLOSED)) {
+		if (switch_channel_down_nosig(channel) || switch_test_flag(sth->ah, SWITCH_ASR_FLAG_CLOSED)) {
 			break;
 		}
 
