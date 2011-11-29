@@ -2409,6 +2409,7 @@ static int max_open(void)
 static int switch_system_fork(const char *cmd, switch_bool_t wait)
 {
 	int pid;
+	char *dcmd = strdup(cmd);
 
 	switch_core_set_signal_handlers();
 
@@ -2418,6 +2419,7 @@ static int switch_system_fork(const char *cmd, switch_bool_t wait)
 		if (wait) {
 			waitpid(pid, NULL, 0);
 		}
+		free(dcmd);
 	} else {
 		int open_max = max_open();
 		int i;
@@ -2427,7 +2429,8 @@ static int switch_system_fork(const char *cmd, switch_bool_t wait)
 		}
 		
 		set_low_priority();
-		i = system(cmd);
+		i = system(dcmd);
+		free(dcmd);
 		exit(0);
 	}
 
