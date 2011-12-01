@@ -436,7 +436,10 @@ src/include/switch_version.h: src/include/switch_version.h.in .version $(libfree
 libs/libedit/src/.libs/libedit.a:
 	cd libs/libedit && $(MAKE)
 
-libs/curl/lib/libcurl.la: libs/curl
+libs/curl/Makefile:
+	cd libs/curl && sh ./configure.gnu --prefix=$(prefix)
+
+libs/curl/lib/libcurl.la: libs/curl libs/curl/Makefile
 	@cd libs/curl && $(MAKE)
 	@$(TOUCH_TARGET)
 
