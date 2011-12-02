@@ -365,7 +365,7 @@ int main(int argc, char *argv[])
 #ifdef __sun
 	switch_core_flag_t flags = SCF_USE_SQL;
 #else
-	switch_core_flag_t flags = SCF_USE_SQL | SCF_USE_AUTO_NAT | SCF_USE_NAT_MAPPING | SCF_CALIBRATE_CLOCK | SCF_USE_CLOCK_RT;
+	switch_core_flag_t flags = SCF_USE_SQL | SCF_USE_NAT_MAPPING | SCF_CALIBRATE_CLOCK | SCF_USE_CLOCK_RT;
 #endif
 	int ret = 0;
 	switch_status_t destroy_status;
@@ -414,7 +414,7 @@ int main(int argc, char *argv[])
 		"\t-vg                    -- run under valgrind\n"
 		"\t-nosql                 -- disable internal sql scoreboard\n"
 		"\t-heavy-timer           -- Heavy Timer, possibly more accurate but at a cost\n"
-		"\t-nonat                 -- disable auto nat detection\n"
+		"\t-nat-detect            -- auto nat detection (UPnP and PMP)\n"
 		"\t-nonatmap              -- disable auto nat port mapping\n"
 		"\t-nocal                 -- disable clock calibration\n"
 		"\t-nort                  -- disable clock clock_realtime\n"
@@ -590,7 +590,13 @@ int main(int argc, char *argv[])
 		}
 
 		if (local_argv[x] && !strcmp(local_argv[x], "-nonat")) {
+			fprintf(stderr,"The -nonat option is depreciated. Support for this argument will be removed in a future revision");
 			flags &= ~SCF_USE_AUTO_NAT;
+			known_opt++;
+		}
+
+		if (local_argv[x] && !strcmp(local_argv[x], "-nat-detect")){
+			flags |= SCF_USE_AUTO_NAT;
 			known_opt++;
 		}
 
