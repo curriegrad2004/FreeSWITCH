@@ -1183,16 +1183,6 @@ public class freeswitch {
     return ret;
   }
 
-  public static int switch_core_curl_count(SWIGTYPE_p_int val) {
-    int ret = freeswitchPINVOKE.switch_core_curl_count(SWIGTYPE_p_int.getCPtr(val));
-    return ret;
-  }
-
-  public static int switch_core_ssl_count(SWIGTYPE_p_int val) {
-    int ret = freeswitchPINVOKE.switch_core_ssl_count(SWIGTYPE_p_int.getCPtr(val));
-    return ret;
-  }
-
   public static void switch_core_remove_state_handler(switch_state_handler_table state_handler) {
     freeswitchPINVOKE.switch_core_remove_state_handler(switch_state_handler_table.getCPtr(state_handler));
   }
@@ -1797,8 +1787,8 @@ public class freeswitch {
     return ret;
   }
 
-  public static SWIGTYPE_p_HashElem switch_hash_first(string depricate_me, SWIGTYPE_p_switch_hash hash) {
-    IntPtr cPtr = freeswitchPINVOKE.switch_hash_first(depricate_me, SWIGTYPE_p_switch_hash.getCPtr(hash));
+  public static SWIGTYPE_p_HashElem switch_hash_first(string deprecate_me, SWIGTYPE_p_switch_hash hash) {
+    IntPtr cPtr = freeswitchPINVOKE.switch_hash_first(deprecate_me, SWIGTYPE_p_switch_hash.getCPtr(hash));
     SWIGTYPE_p_HashElem ret = (cPtr == IntPtr.Zero) ? null : new SWIGTYPE_p_HashElem(cPtr, false);
     return ret;
   }
@@ -7900,12 +7890,6 @@ class freeswitchPINVOKE {
 
   [DllImport("mod_managed", EntryPoint="CSharp_switch_core_add_state_handler")]
   public static extern int switch_core_add_state_handler(HandleRef jarg1);
-
-  [DllImport("mod_managed", EntryPoint="CSharp_switch_core_curl_count")]
-  public static extern int switch_core_curl_count(HandleRef jarg1);
-
-  [DllImport("mod_managed", EntryPoint="CSharp_switch_core_ssl_count")]
-  public static extern int switch_core_ssl_count(HandleRef jarg1);
 
   [DllImport("mod_managed", EntryPoint="CSharp_switch_core_remove_state_handler")]
   public static extern void switch_core_remove_state_handler(HandleRef jarg1);
@@ -24680,6 +24664,7 @@ public enum switch_core_session_message_types_t {
   SWITCH_MESSAGE_INDICATE_JITTER_BUFFER,
   SWITCH_MESSAGE_INDICATE_RECOVERY_REFRESH,
   SWITCH_MESSAGE_INDICATE_SIGNAL_DATA,
+  SWITCH_MESSAGE_INDICATE_INFO,
   SWITCH_MESSAGE_INVALID
 }
 

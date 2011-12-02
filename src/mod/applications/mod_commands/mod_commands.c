@@ -45,6 +45,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_commands_load);
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_commands_shutdown);
 SWITCH_MODULE_DEFINITION(mod_commands, mod_commands_load, mod_commands_shutdown, NULL);
 
+static switch_mutex_t *reload_mutex = NULL;
 
 struct cb_helper {
 	uint32_t row_process;
@@ -2004,6 +2005,8 @@ SWITCH_STANDARD_API(load_function)
 		return SWITCH_STATUS_SUCCESS;
 	}
 
+	switch_mutex_lock(reload_mutex);
+
 	if (switch_xml_reload(&err) == SWITCH_STATUS_SUCCESS) {
 		stream->write_function(stream, "+OK Reloading XML\n");
 	}
@@ -2013,6 +2016,8 @@ SWITCH_STANDARD_API(load_function)
 	} else {
 		stream->write_function(stream, "-ERR [%s]\n", err);
 	}
+
+	switch_mutex_unlock(reload_mutex);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -2053,11 +2058,15 @@ SWITCH_STANDARD_API(unload_function)
 		return SWITCH_STATUS_SUCCESS;
 	}
 
+	switch_mutex_lock(reload_mutex);
+	
 	if (switch_loadable_module_unload_module((char *) SWITCH_GLOBAL_dirs.mod_dir, (char *) cmd, force, &err) == SWITCH_STATUS_SUCCESS) {
 		stream->write_function(stream, "+OK\n");
 	} else {
 		stream->write_function(stream, "-ERR [%s]\n", err);
 	}
+
+	switch_mutex_unlock(reload_mutex);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -2096,6 +2105,8 @@ SWITCH_STANDARD_API(reload_function)
 		return SWITCH_STATUS_SUCCESS;
 	}
 
+	switch_mutex_lock(reload_mutex);
+
 	if (switch_loadable_module_unload_module((char *) SWITCH_GLOBAL_dirs.mod_dir, (char *) cmd, force, &err) == SWITCH_STATUS_SUCCESS) {
 		stream->write_function(stream, "+OK module unloaded\n");
 	} else {
@@ -2111,6 +2122,8 @@ SWITCH_STANDARD_API(reload_function)
 	} else {
 		stream->write_function(stream, "-ERR loading module [%s]\n", err);
 	}
+
+	switch_mutex_unlock(reload_mutex);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -2990,6 +3003,44 @@ SWITCH_STANDARD_API(uuid_phone_event_function)
 
 		msg.message_id = SWITCH_MESSAGE_INDICATE_PHONE_EVENT;
 		msg.string_arg = argv[1];
+		msg.from = __FILE__;
+
+		if ((lsession = switch_core_session_locate(argv[0]))) {
+			status = switch_core_session_receive_message(lsession, &msg);
+			switch_core_session_rwunlock(lsession);
+		}
+	}
+
+	if (status == SWITCH_STATUS_SUCCESS) {
+		stream->write_function(stream, "+OK Success\n");
+	} else {
+		stream->write_function(stream, "-ERR Operation Failed\n");
+	}
+
+	switch_safe_free(mycmd);
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+#define INFO_SYNTAX "<uuid>"
+SWITCH_STANDARD_API(uuid_send_info_function)
+{
+	switch_status_t status = SWITCH_STATUS_FALSE;
+	char *mycmd = NULL, *argv[2] = { 0 };
+	int argc = 0;
+
+	if (!zstr(cmd) && (mycmd = strdup(cmd))) {
+		argc = switch_separate_string(mycmd, ' ', argv, (sizeof(argv) / sizeof(argv[0])));
+	}
+
+	if (argc < 1) {
+		stream->write_function(stream, "-USAGE: %s\n", INFO_SYNTAX);
+	} else {
+		switch_core_session_message_t msg = { 0 };
+		switch_core_session_t *lsession = NULL;
+
+		msg.message_id = SWITCH_MESSAGE_INDICATE_INFO;
+		msg.string_array_arg[2] = argv[1];
 		msg.from = __FILE__;
 
 		if ((lsession = switch_core_session_locate(argv[0]))) {
@@ -5238,6 +5289,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_commands_load)
 	*module_interface = switch_loadable_module_create_module_interface(pool, modname);
 
 	switch_thread_rwlock_create(&bgapi_rwlock, pool);
+	switch_mutex_init(&reload_mutex, SWITCH_MUTEX_NESTED, pool);
+	
 
 	SWITCH_ADD_API(commands_api_interface, "acl", "compare an ip to an acl list", acl_function, "<ip> <list_name>");
 	SWITCH_ADD_API(commands_api_interface, "alias", "Alias", alias_function, ALIAS_SYNTAX);
@@ -5329,6 +5382,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_commands_load)
 	SWITCH_ADD_API(commands_api_interface, "uuid_getvar", "uuid_getvar", uuid_getvar_function, GETVAR_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "uuid_hold", "hold", uuid_hold_function, HOLD_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "uuid_kill", "Kill Channel", kill_function, KILL_SYNTAX);
+	SWITCH_ADD_API(commands_api_interface, "uuid_send_info", "Send info to the endpoint", uuid_send_info_function, INFO_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "uuid_outgoing_answer", "Answer Outgoing Channel", outgoing_answer_function, OUTGOING_ANSWER_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "uuid_limit", "Increase limit resource", uuid_limit_function, LIMIT_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "uuid_limit_release", "Release limit resource", uuid_limit_release_function, LIMIT_RELEASE_SYNTAX);
@@ -5455,6 +5509,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_commands_load)
 	switch_console_set_complete("add uuid_flush_dtmf ::console::list_uuid");
 	switch_console_set_complete("add uuid_getvar ::console::list_uuid");
 	switch_console_set_complete("add uuid_hold ::console::list_uuid");
+	switch_console_set_complete("add uuid_send_info ::console::list_uuid");
 	switch_console_set_complete("add uuid_jitterbuffer ::console::list_uuid");
 	switch_console_set_complete("add uuid_kill ::console::list_uuid");
 	switch_console_set_complete("add uuid_outgoing_answer ::console::list_uuid");

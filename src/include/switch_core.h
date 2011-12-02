@@ -436,9 +436,6 @@ SWITCH_DECLARE(void) switch_core_session_rwunlock(_In_ switch_core_session_t *se
 */
 SWITCH_DECLARE(int) switch_core_add_state_handler(_In_ const switch_state_handler_table_t *state_handler);
 
-SWITCH_DECLARE(int) switch_core_curl_count(int *val);
-SWITCH_DECLARE(int) switch_core_ssl_count(int *val);
-
 /*!
   \brief Remove a global state handler
   \param state_handler the state handler to remove
@@ -1308,11 +1305,11 @@ SWITCH_DECLARE(void *) switch_core_hash_find_rdlock(_In_ switch_hash_t *hash, _I
 
 /*!
  \brief Gets the first element of a hashtable
- \param depricate_me [deprecated] NULL
+ \param deprecate_me [deprecated] NULL
  \param hash the hashtable to use
  \return The element, or NULL if it wasn't found 
 */
-SWITCH_DECLARE(switch_hash_index_t *) switch_hash_first(char *depricate_me, _In_ switch_hash_t *hash);
+SWITCH_DECLARE(switch_hash_index_t *) switch_hash_first(char *deprecate_me, _In_ switch_hash_t *hash);
 
 /*!
  \brief Gets the next element of a hashtable

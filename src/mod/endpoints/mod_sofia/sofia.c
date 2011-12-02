@@ -184,10 +184,12 @@ static void extract_header_vars(sofia_profile_t *profile, sip_t const *sip,
 			}
 		}
 
-		if (sip->sip_contact) {
-			char *c = sip_header_as_string(nh->nh_home, (void *) sip->sip_contact);
-			switch_channel_set_variable(channel, "sip_invite_contact", c);
-			su_free(nh->nh_home, c);
+		if (switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_OUTBOUND) {
+			if (sip->sip_contact) {
+				char *c = sip_header_as_string(nh->nh_home, (void *) sip->sip_contact);
+				switch_channel_set_variable(channel, "sip_recover_contact", c);
+				su_free(nh->nh_home, c);
+			}
 		}
 
 		if (sip->sip_record_route) {
@@ -197,13 +199,34 @@ static void extract_header_vars(sofia_profile_t *profile, sip_t const *sip,
 
 			SWITCH_STANDARD_STREAM(stream);
 
-			for(rrp = sip->sip_record_route; rrp; rrp = rrp->r_next) {
-				char *rr = sip_header_as_string(nh->nh_home, (void *) rrp);
+			if (switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_OUTBOUND) {
+				char *tmp[128] = { 0 };
+				int y = 0;
 				
-				stream.write_function(&stream, x == 0 ? "%s" : ",%s", rr);
-				su_free(nh->nh_home, rr);
+				for(rrp = sip->sip_record_route; rrp; rrp = rrp->r_next) {
+					char *rr = sip_header_as_string(nh->nh_home, (void *) rrp);
+					tmp[y++] = rr;
+					if (y == 127) break;
+				}
 				
-				x++;
+				y--;
+
+				while(y >= 0) {
+					stream.write_function(&stream, x == 0 ? "%s" : ",%s", tmp[y]);
+					su_free(nh->nh_home, tmp[y]);
+					y--;
+					x++;
+				}
+
+			} else {
+				for(rrp = sip->sip_record_route; rrp; rrp = rrp->r_next) {
+					char *rr = sip_header_as_string(nh->nh_home, (void *) rrp);
+				
+					stream.write_function(&stream, x == 0 ? "%s" : ",%s", rr);
+					su_free(nh->nh_home, rr);
+				
+					x++;
+				}
 			}
 			
 			switch_channel_set_variable(channel, "sip_invite_record_route", (char *)stream.data);
@@ -226,7 +249,7 @@ static void extract_header_vars(sofia_profile_t *profile, sip_t const *sip,
 				x++;
 			}
 
-			switch_channel_set_variable(channel, "sip_invite_via", (char *)stream.data);
+			switch_channel_set_variable(channel, "sip_recover_via", (char *)stream.data);
 			free(stream.data);
 		}
 		
@@ -453,7 +476,7 @@ void sofia_handle_sip_i_notify(switch_core_session_t *session, int status,
 	/* dispatch freeswitch event */
 	if (switch_event_create(&s_event, SWITCH_EVENT_NOTIFY_IN) == SWITCH_STATUS_SUCCESS) {
 		switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "event", sip->sip_event->o_type);
-		switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "pl_data", sip->sip_payload->pl_data);
+		switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "pl_data", sip->sip_payload ? sip->sip_payload->pl_data : "");
 		switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "sip_content_type", sip->sip_content_type->c_type);
 		switch_event_add_header(s_event, SWITCH_STACK_BOTTOM, "port", "%d", sofia_private->gateway->profile->sip_port);
 		switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "module_name", "mod_sofia");
@@ -595,7 +618,7 @@ void sofia_handle_sip_i_bye(switch_core_session_t *session, int status,
 	switch_channel_set_variable(channel, "sip_term_cause", st);
 
 	extra_headers = sofia_glue_get_extra_headers(channel, SOFIA_SIP_BYE_HEADER_PREFIX);
-	sofia_glue_set_extra_headers(channel, sip, SOFIA_SIP_BYE_HEADER_PREFIX);
+	sofia_glue_set_extra_headers(session, sip, SOFIA_SIP_BYE_HEADER_PREFIX);
 
 	if (!(vval = switch_channel_get_variable(channel, "sip_copy_custom_headers")) || switch_true(vval)) { 
 		switch_core_session_t *nsession = NULL; 
@@ -850,7 +873,7 @@ static void our_sofia_event_callback(nua_event_t event,
 	if (sofia_private && sofia_private->is_call && sofia_private->de) {
 		sofia_dispatch_event_t *qde = sofia_private->de;
 		sofia_private->de = NULL;
-		sofia_process_dispatch_event(&qde, SWITCH_TRUE);
+		sofia_process_dispatch_event(&qde);
 	}
 
 	profile->last_sip_event = switch_time_now();
@@ -1172,7 +1195,7 @@ static void our_sofia_event_callback(nua_event_t event,
 	}
 }
 
-void sofia_process_dispatch_event(sofia_dispatch_event_t **dep, switch_bool_t do_callback)
+void sofia_process_dispatch_event(sofia_dispatch_event_t **dep)
 {
 	sofia_dispatch_event_t *de = *dep;
 	nua_handle_t *nh = de->nh;
@@ -1181,10 +1204,8 @@ void sofia_process_dispatch_event(sofia_dispatch_event_t **dep, switch_bool_t do
 
 	*dep = NULL;
 
-	if (do_callback) {
-		our_sofia_event_callback(de->data->e_event, de->data->e_status, de->data->e_phrase, de->nua, de->profile, 
-								 de->nh, nua_handle_magic(de->nh), de->sip, de, (tagi_t *) de->data->e_tags);
-	}
+	our_sofia_event_callback(de->data->e_event, de->data->e_status, de->data->e_phrase, de->nua, de->profile, 
+							 de->nh, nua_handle_magic(de->nh), de->sip, de, (tagi_t *) de->data->e_tags);
 
 	nua_destroy_event(de->event);	
 	su_free(nh->nh_home, de);
@@ -1208,7 +1229,7 @@ void *SWITCH_THREAD_FUNC sofia_msg_thread_run(switch_thread_t *thread, void *obj
 
 	while(switch_queue_pop(q, &pop) == SWITCH_STATUS_SUCCESS && pop) {
 		sofia_dispatch_event_t *de = (sofia_dispatch_event_t *) pop;
-		sofia_process_dispatch_event(&de, SWITCH_TRUE);
+		sofia_process_dispatch_event(&de);
 		switch_cond_next();
 	}
 
@@ -1259,7 +1280,7 @@ static void sofia_queue_message(sofia_dispatch_event_t *de)
 	int idx = 0;
 
 	if (mod_sofia_globals.running == 0) {
-		sofia_process_dispatch_event(&de, SWITCH_TRUE);
+		sofia_process_dispatch_event(&de);
 		return;
 	}
 
@@ -1292,6 +1313,7 @@ void sofia_event_callback(nua_event_t event,
 {
 	sofia_dispatch_event_t *de;
 
+
 	switch_mutex_lock(profile->flag_mutex);
 	profile->queued_events++;
 	switch_mutex_unlock(profile->flag_mutex);
@@ -1322,13 +1344,9 @@ void sofia_event_callback(nua_event_t event,
 		switch_core_session_t *session;
 
 		if (!zstr(sofia_private->uuid)) {
-			if ((session = switch_core_session_force_locate(sofia_private->uuid))) {
+			if ((session = switch_core_session_locate(sofia_private->uuid))) {
 				if (switch_core_session_running(session)) {
-					if (switch_channel_down_nosig(switch_core_session_get_channel(session))) {
-						sofia_process_dispatch_event(&de, SWITCH_FALSE);
-					} else {
-						switch_core_session_queue_signal_data(session, de);
-					}
+					switch_core_session_queue_signal_data(session, de);
 				} else {
 					switch_core_session_message_t msg = { 0 };
 					msg.message_id = SWITCH_MESSAGE_INDICATE_SIGNAL_DATA;
@@ -4612,6 +4630,14 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 		switch_caller_profile_t *caller_profile = NULL;
 		int has_t38 = 0;
 
+		switch_channel_clear_flag(channel, CF_REQ_MEDIA);
+
+		if (status >= 900) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s status %d received.\n", 
+							  switch_channel_get_name(channel), status);
+			return;
+		}
+
 		sofia_glue_get_addr(de->data->e_msg, network_ip, sizeof(network_ip), &network_port);
 
 		switch_channel_set_variable_printf(channel, "sip_local_network_addr", "%s", profile->extsipip ? profile->extsipip : profile->sipip);
@@ -4624,8 +4650,6 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 		if ((caller_profile = switch_channel_get_caller_profile(channel))) {
 			caller_profile->network_addr = switch_core_strdup(caller_profile->pool, network_ip);
 		}
-
-		switch_channel_clear_flag(channel, CF_REQ_MEDIA);
 
 		tech_pvt->last_sdp_str = NULL;
 		if (!sofia_use_soa(tech_pvt) && sip->sip_payload && sip->sip_payload->pl_data) {
@@ -4711,9 +4735,9 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 			const char *vval;
 
 			if (status > 199) {
-				sofia_glue_set_extra_headers(channel, sip, SOFIA_SIP_RESPONSE_HEADER_PREFIX);
+				sofia_glue_set_extra_headers(session, sip, SOFIA_SIP_RESPONSE_HEADER_PREFIX);
 			} else {
-				sofia_glue_set_extra_headers(channel, sip, SOFIA_SIP_PROGRESS_HEADER_PREFIX);
+				sofia_glue_set_extra_headers(session, sip, SOFIA_SIP_PROGRESS_HEADER_PREFIX);
 			}
 
 
@@ -4916,10 +4940,15 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 		}
 
 
-		if (sip->sip_payload && sip->sip_payload->pl_data && switch_stristr("m=image", sip->sip_payload->pl_data)) {
+		if (!switch_channel_test_flag(channel, CF_PROXY_MODE) && 
+			sip->sip_payload && sip->sip_payload->pl_data && switch_stristr("m=image", sip->sip_payload->pl_data)) {
 			has_t38 = 1;
 		}
 		
+		if (switch_channel_test_flag(channel, CF_PROXY_MODE)) {
+			sofia_clear_flag(tech_pvt, TFLAG_T38_PASSTHRU);
+		}
+
 		if (switch_channel_test_flag(channel, CF_PROXY_MODE) || 
 			switch_channel_test_flag(channel, CF_PROXY_MEDIA) || 
 			(sofia_test_flag(tech_pvt, TFLAG_T38_PASSTHRU) && (has_t38 || status > 299))) {
@@ -4937,9 +4966,9 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 						sip->sip_content_type && sip->sip_content_type->c_subtype && switch_stristr("sdp", sip->sip_content_type->c_subtype)) {
 						tech_pvt->remote_sdp_str = switch_core_session_strdup(tech_pvt->session, sip->sip_payload->pl_data);
 						r_sdp = tech_pvt->remote_sdp_str;
-						sofia_glue_tech_proxy_remote_addr(tech_pvt);
+						sofia_glue_tech_proxy_remote_addr(tech_pvt, NULL);
 					}
-
+					
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Passing %d %s to other leg\n", status, phrase);
 
 					if (status > 299) {
@@ -5782,6 +5811,15 @@ static void sofia_handle_sip_i_state(switch_core_session_t *session, int status,
 							goto done;
 						}
 
+						if (switch_channel_test_flag(channel, CF_PROXY_MEDIA)) {
+							if (sofia_glue_tech_proxy_remote_addr(tech_pvt, r_sdp) == SWITCH_STATUS_SUCCESS) {
+								nua_respond(tech_pvt->nh, SIP_200_OK, TAG_END());
+								switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Audio params changed, NOT proxying re-invite.\n");
+								switch_core_session_rwunlock(other_session);
+								goto done;
+							}
+						}
+
 						msg = switch_core_session_alloc(other_session, sizeof(*msg));
 						msg->message_id = SWITCH_MESSAGE_INDICATE_MEDIA_REDIRECT;
 						msg->from = __FILE__;
@@ -6106,7 +6144,7 @@ static void sofia_handle_sip_i_state(switch_core_session_t *session, int status,
 				if (phrase) {
 					switch_channel_set_variable_partner(channel, "sip_hangup_phrase", phrase);
 				}
-				sofia_glue_set_extra_headers(channel, sip, SOFIA_SIP_BYE_HEADER_PREFIX);
+				sofia_glue_set_extra_headers(session, sip, SOFIA_SIP_BYE_HEADER_PREFIX);
 			}
 			switch_snprintf(st, sizeof(st), "%d", cause);
 			switch_channel_set_variable(channel, "sip_term_cause", st);
@@ -6941,9 +6979,44 @@ void sofia_handle_sip_i_info(nua_t *nua, sofia_profile_t *profile, nua_handle_t 
 	if (session) {
 		/* Get the channel */
 		switch_channel_t *channel = switch_core_session_get_channel(session);
+		const char *vval;
 
 		/* Barf if we didn't get our private */
 		assert(switch_core_session_get_private(session));
+
+		sofia_glue_set_extra_headers(session, sip, SOFIA_SIP_INFO_HEADER_PREFIX);
+
+
+
+		if (sip && sip->sip_content_type && sip->sip_content_type->c_type && !strcasecmp(sip->sip_content_type->c_type, "freeswitch/data")) {
+			char *data = NULL;
+			
+			if (sip->sip_payload && sip->sip_payload->pl_data) {
+				data = sip->sip_payload->pl_data;
+			}
+
+			if ((vval = switch_channel_get_variable(channel, "sip_copy_custom_headers")) && switch_true(vval)) { 
+				switch_core_session_t *nsession = NULL; 
+				
+				switch_core_session_get_partner(session, &nsession); 
+			
+				if (nsession) { 
+					switch_core_session_message_t *msg;
+				
+					switch_ivr_transfer_variable(session, nsession, SOFIA_SIP_INFO_HEADER_PREFIX_T); 
+					msg = switch_core_session_alloc(nsession, sizeof(*msg));
+					MESSAGE_STAMP_FFL(msg);
+					msg->message_id = SWITCH_MESSAGE_INDICATE_INFO;
+					
+					msg->string_array_arg[2] = switch_core_session_strdup(nsession, data);
+					
+					msg->from = __FILE__;
+					switch_core_session_queue_message(nsession, msg);
+				
+					switch_core_session_rwunlock(nsession);
+				} 
+			} 
+		}
 		
 		if (sip && sip->sip_content_type && sip->sip_content_type->c_subtype && sip->sip_content_type->c_type &&
 			!strncasecmp(sip->sip_content_type->c_type, "message", 7) &&
