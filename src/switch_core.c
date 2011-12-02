@@ -200,33 +200,6 @@ SWITCH_DECLARE(FILE *) switch_core_data_channel(switch_text_channel_t channel)
 }
 
 
-SWITCH_DECLARE(int) switch_core_curl_count(int *val)
-{
-	if (!val) {
-		switch_mutex_lock(runtime.global_mutex);
-		return runtime.curl_count;
-	}
-
-	runtime.curl_count = *val;
-	switch_mutex_unlock(runtime.global_mutex);
-	return 0;
-
-}
-
-
-SWITCH_DECLARE(int) switch_core_ssl_count(int *val)
-{
-	if (!val) {
-		switch_mutex_lock(runtime.global_mutex);
-		return runtime.ssl_count;
-	}
-
-	runtime.ssl_count = *val;
-	switch_mutex_unlock(runtime.global_mutex);
-	return 0;
-
-}
-
 SWITCH_DECLARE(void) switch_core_remove_state_handler(const switch_state_handler_table_t *state_handler)
 {
 	int index, tmp_index = 0;
@@ -1453,6 +1426,9 @@ SWITCH_DECLARE(switch_status_t) switch_core_init(switch_core_flag_t flags, switc
 		runtime.console = stdout;
 	}
 
+	switch_ssl_init_ssl_locks();
+	switch_curl_init();
+
 	switch_core_set_variable("hostname", runtime.hostname);
 	switch_find_local_ip(guess_ip, sizeof(guess_ip), &mask, AF_INET);
 	switch_core_set_variable("local_ip_v4", guess_ip);
@@ -1512,7 +1488,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_init(switch_core_flag_t flags, switc
 
 	switch_uuid_get(&uuid);
 	switch_uuid_format(runtime.uuid_str, &uuid);
-	switch_ssl_init_ssl_locks();
+
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -2409,6 +2385,7 @@ static int max_open(void)
 static int switch_system_fork(const char *cmd, switch_bool_t wait)
 {
 	int pid;
+	char *dcmd = strdup(cmd);
 
 	switch_core_set_signal_handlers();
 
@@ -2418,6 +2395,7 @@ static int switch_system_fork(const char *cmd, switch_bool_t wait)
 		if (wait) {
 			waitpid(pid, NULL, 0);
 		}
+		free(dcmd);
 	} else {
 		int open_max = max_open();
 		int i;
@@ -2427,7 +2405,8 @@ static int switch_system_fork(const char *cmd, switch_bool_t wait)
 		}
 		
 		set_low_priority();
-		i = system(cmd);
+		i = system(dcmd);
+		free(dcmd);
 		exit(0);
 	}
 

@@ -958,7 +958,6 @@ static switch_status_t sofia_read_frame(switch_core_session_t *session, switch_f
 
 	while (!(tech_pvt->read_codec.implementation && switch_rtp_ready(tech_pvt->rtp_session) && !switch_channel_test_flag(channel, CF_REQ_MEDIA))) {
 		switch_ivr_parse_all_messages(tech_pvt->session);
-
 		if (--sanity && switch_channel_up(channel)) {
 			switch_yield(10000);
 		} else {
@@ -1414,7 +1413,7 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 		if (switch_core_session_in_thread(session)) {
 			de->session = session;
 		}
-		sofia_process_dispatch_event(&de, SWITCH_TRUE);
+		sofia_process_dispatch_event(&de);
 		switch_mutex_unlock(tech_pvt->sofia_mutex);
 		goto end;
 	}
@@ -1797,7 +1796,10 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 			}
 
 			sofia_set_flag_locked(tech_pvt, TFLAG_SENT_UPDATE);
-			switch_channel_set_flag(channel, CF_REQ_MEDIA);
+
+			if (!switch_channel_test_flag(channel, CF_PROXY_MEDIA)) {
+				switch_channel_set_flag(channel, CF_REQ_MEDIA);
+			}
 			sofia_glue_do_invite(session);
 		}
 		break;
@@ -1858,7 +1860,9 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 
 			sofia_glue_set_image_sdp(tech_pvt, t38_options, msg->numeric_arg);
 
-			switch_channel_set_flag(channel, CF_REQ_MEDIA);
+			if (!switch_channel_test_flag(channel, CF_PROXY_MEDIA)) {
+				switch_channel_set_flag(channel, CF_REQ_MEDIA);
+			}
 			sofia_set_flag_locked(tech_pvt, TFLAG_SENT_UPDATE);
 			sofia_glue_do_invite(session);
 		}
@@ -1896,7 +1900,9 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 			sofia_glue_set_local_sdp(tech_pvt, NULL, 0, NULL, 1);
 
 			if (send_invite) {
-				switch_channel_set_flag(channel, CF_REQ_MEDIA);
+				if (!switch_channel_test_flag(channel, CF_PROXY_MEDIA)) {
+					switch_channel_set_flag(channel, CF_REQ_MEDIA);
+				}
 				sofia_glue_do_invite(session);
 			} else {
 				status = SWITCH_STATUS_FALSE;
@@ -1921,6 +1927,43 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 								  "Operation not permitted on an inbound non-answered call leg!\n");
 			} else { 
 				nua_notify(tech_pvt->nh, NUTAG_NEWSUB(1), NUTAG_SUBSTATE(nua_substate_active), SIPTAG_EVENT_STR(event), TAG_END());
+			}
+
+		}
+	case SWITCH_MESSAGE_INDICATE_INFO:
+		{
+			char *ct = "freeswitch/data";
+			int ok = 0;
+
+			if (!zstr(msg->string_array_arg[0]) && !zstr(msg->string_array_arg[1])) {
+				ct = switch_core_session_sprintf(session, "%s/%s", msg->string_array_arg[0], msg->string_array_arg[1]);
+				ok = 1;
+			}
+
+			if (switch_stristr("send_info", tech_pvt->x_freeswitch_support_remote)) {
+				ok = 1;
+			}
+
+			if (switch_true(switch_channel_get_variable(channel, "fs_send_unspported_info"))) {
+				ok = 1;
+			}
+			
+			if (ok) {
+				char *headers = sofia_glue_get_extra_headers(channel, SOFIA_SIP_INFO_HEADER_PREFIX);
+				const char *pl = NULL;
+				
+				if (!zstr(msg->string_array_arg[2])) {
+					pl = msg->string_array_arg[2];
+				}
+				
+				nua_info(tech_pvt->nh,
+						 SIPTAG_CONTENT_TYPE_STR(ct),
+						 TAG_IF(!zstr(headers), SIPTAG_HEADER_STR(headers)),
+						 TAG_IF(!zstr(tech_pvt->user_via), SIPTAG_VIA_STR(tech_pvt->user_via)), 
+						 TAG_IF(pl, SIPTAG_PAYLOAD_STR(pl)),
+						 TAG_END());
+			} else {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "%s send_info is not supported.\n", switch_channel_get_name(channel));
 			}
 		}
 		break;
@@ -2313,7 +2356,7 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 
 						if (switch_channel_test_flag(channel, CF_PROXY_MEDIA)) {
 							sofia_glue_tech_patch_sdp(tech_pvt);
-							sofia_glue_tech_proxy_remote_addr(tech_pvt);
+							sofia_glue_tech_proxy_remote_addr(tech_pvt, NULL);
 						}
 						if (sofia_use_soa(tech_pvt)) {
 							nua_respond(tech_pvt->nh, code, su_strdup(nua_handle_home(tech_pvt->nh), reason), SIPTAG_CONTACT_STR(tech_pvt->reply_contact),
@@ -2874,7 +2917,6 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 					stream->write_function(stream, "CALLS-OUT        \t%u\n", profile->ob_calls);
 					stream->write_function(stream, "FAILED-CALLS-OUT \t%u\n", profile->ob_failed_calls);
 				}
-				stream->write_function(stream, "\nRegistrations:\n%s\n", line);
 
 				cb.profile = profile;
 				cb.stream = stream;
@@ -2890,6 +2932,12 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 										 "rpid,expires,user_agent,server_user,server_host,profile_name,hostname,"
 										 "network_ip,network_port,sip_username,sip_realm,mwi_user,mwi_host"
 										 " from sip_registrations where profile_name='%q' and contact like '%%%q%%'", profile->name, argv[3]);
+				}
+				if (!sql && argv[2] && !strcasecmp(argv[2], "reg")) {
+					sql = switch_mprintf("select call_id,sip_user,sip_host,contact,status,"
+										 "rpid,expires,user_agent,server_user,server_host,profile_name,hostname,"
+										 "network_ip,network_port,sip_username,sip_realm,mwi_user,mwi_host"
+										 " from sip_registrations where profile_name='%q'", profile->name);
 				}
 				if (!sql && argv[2] && !strcasecmp(argv[2], "user") && argv[3]) {
 					char *dup = strdup(argv[3]);
@@ -2921,20 +2969,18 @@ static switch_status_t cmd_status(char **argv, int argc, switch_stream_handle_t 
 					switch_safe_free(sqlextra);
 				}
 
-				if (!sql) {
-					sql = switch_mprintf("select call_id,sip_user,sip_host,contact,status,"
-										 "rpid,expires,user_agent,server_user,server_host,profile_name,hostname,"
-										 "network_ip,network_port,sip_username,sip_realm,mwi_user,mwi_host"
-										 " from sip_registrations where profile_name='%q'", profile->name);
+				if (sql) {
+					stream->write_function(stream, "\nRegistrations:\n%s\n", line);
+
+					sofia_glue_execute_sql_callback(profile, profile->ireg_mutex, sql, show_reg_callback, &cb);
+					switch_safe_free(sql);
+
+					stream->write_function(stream, "Total items returned: %d\n", cb.row_process);
+					stream->write_function(stream, "%s\n", line);
 				}
 
-				sofia_glue_execute_sql_callback(profile, profile->ireg_mutex, sql, show_reg_callback, &cb);
-				switch_safe_free(sql);
-
-				stream->write_function(stream, "Total items returned: %d\n", cb.row_process);
-				stream->write_function(stream, "%s\n", line);
-
 				sofia_glue_release_profile(profile);
+
 			} else {
 				stream->write_function(stream, "Invalid Profile!\n");
 			}
@@ -3980,7 +4026,7 @@ SWITCH_STANDARD_API(sofia_function)
 		"                     siptrace <on|off>\n"
 		"                     capture  <on|off>\n"
 		"                     watchdog <on|off>\n\n"
-		"sofia <status|xmlstatus> profile <name> [reg <contact str>] | [pres <pres str>] | [user <user@domain>]\n"
+		"sofia <status|xmlstatus> profile <name> [reg [<contact str>]] | [pres <pres str>] | [user <user@domain>]\n"
 		"sofia <status|xmlstatus> gateway <name>\n\n"
 		"sofia loglevel <all|default|tport|iptsec|nea|nta|nth_client|nth_server|nua|soa|sresolv|stun> [0-9]\n"
 		"sofia tracelevel <console|alert|crit|err|warning|notice|info|debug>\n\n"
@@ -5408,3 +5454,4 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_sofia_shutdown)
  * For VIM:
  * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
  */
+
