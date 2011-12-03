@@ -1796,7 +1796,10 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 			}
 
 			sofia_set_flag_locked(tech_pvt, TFLAG_SENT_UPDATE);
-			switch_channel_set_flag(channel, CF_REQ_MEDIA);
+
+			if (!switch_channel_test_flag(channel, CF_PROXY_MEDIA)) {
+				switch_channel_set_flag(channel, CF_REQ_MEDIA);
+			}
 			sofia_glue_do_invite(session);
 		}
 		break;
@@ -1857,7 +1860,9 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 
 			sofia_glue_set_image_sdp(tech_pvt, t38_options, msg->numeric_arg);
 
-			switch_channel_set_flag(channel, CF_REQ_MEDIA);
+			if (!switch_channel_test_flag(channel, CF_PROXY_MEDIA)) {
+				switch_channel_set_flag(channel, CF_REQ_MEDIA);
+			}
 			sofia_set_flag_locked(tech_pvt, TFLAG_SENT_UPDATE);
 			sofia_glue_do_invite(session);
 		}
@@ -1895,7 +1900,9 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 			sofia_glue_set_local_sdp(tech_pvt, NULL, 0, NULL, 1);
 
 			if (send_invite) {
-				switch_channel_set_flag(channel, CF_REQ_MEDIA);
+				if (!switch_channel_test_flag(channel, CF_PROXY_MEDIA)) {
+					switch_channel_set_flag(channel, CF_REQ_MEDIA);
+				}
 				sofia_glue_do_invite(session);
 			} else {
 				status = SWITCH_STATUS_FALSE;
@@ -1925,24 +1932,39 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 		}
 	case SWITCH_MESSAGE_INDICATE_INFO:
 		{
-			char *headers = sofia_glue_get_extra_headers(channel, SOFIA_SIP_INFO_HEADER_PREFIX);
 			char *ct = "freeswitch/data";
-			const char *pl = NULL;
+			int ok = 0;
 
 			if (!zstr(msg->string_array_arg[0]) && !zstr(msg->string_array_arg[1])) {
 				ct = switch_core_session_sprintf(session, "%s/%s", msg->string_array_arg[0], msg->string_array_arg[1]);
+				ok = 1;
 			}
 
-			if (!zstr(msg->string_array_arg[2])) {
-				pl = msg->string_array_arg[2];
+			if (switch_stristr("send_info", tech_pvt->x_freeswitch_support_remote)) {
+				ok = 1;
 			}
 
-			nua_info(tech_pvt->nh,
-					 SIPTAG_CONTENT_TYPE_STR(ct),
-					 TAG_IF(!zstr(headers), SIPTAG_HEADER_STR(headers)),
-					 TAG_IF(!zstr(tech_pvt->user_via), SIPTAG_VIA_STR(tech_pvt->user_via)), 
-					 TAG_IF(pl, SIPTAG_PAYLOAD_STR(pl)),
-					 TAG_END());
+			if (switch_true(switch_channel_get_variable(channel, "fs_send_unspported_info"))) {
+				ok = 1;
+			}
+			
+			if (ok) {
+				char *headers = sofia_glue_get_extra_headers(channel, SOFIA_SIP_INFO_HEADER_PREFIX);
+				const char *pl = NULL;
+				
+				if (!zstr(msg->string_array_arg[2])) {
+					pl = msg->string_array_arg[2];
+				}
+				
+				nua_info(tech_pvt->nh,
+						 SIPTAG_CONTENT_TYPE_STR(ct),
+						 TAG_IF(!zstr(headers), SIPTAG_HEADER_STR(headers)),
+						 TAG_IF(!zstr(tech_pvt->user_via), SIPTAG_VIA_STR(tech_pvt->user_via)), 
+						 TAG_IF(pl, SIPTAG_PAYLOAD_STR(pl)),
+						 TAG_END());
+			} else {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "%s send_info is not supported.\n", switch_channel_get_name(channel));
+			}
 		}
 		break;
 	case SWITCH_MESSAGE_INDICATE_SIMPLIFY:
