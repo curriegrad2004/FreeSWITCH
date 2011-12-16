@@ -32,6 +32,7 @@
  * Raymond Chandler <intralanman@gmail.com>
  * Nathan Patrick <npatrick at corp.sonic.net>
  * Jeffrey Leung <jleung at curriegrad2004.ca>
+ * Joseph Sullivan <jossulli@amazon.com>
  *
  *
  * sofia.c -- SOFIA SIP Endpoint (sofia code)
@@ -90,7 +91,8 @@ void sofia_handle_sip_r_notify(switch_core_session_t *session, int status,
 
 	if (status >= 300 && sip && sip->sip_call_id && (!sofia_private || !sofia_private->is_call)) {
 		char *sql;
-		sql = switch_mprintf("delete from sip_subscriptions where call_id='%q'", sip->sip_call_id->i_id);
+
+		sql = switch_mprintf("update sip_subscriptions set expires=%ld where call_id='%q'", (long) switch_epoch_time_now(NULL), sip->sip_call_id->i_id);
 		switch_assert(sql != NULL);
 		sofia_glue_execute_sql(profile, &sql, SWITCH_TRUE);
 		nua_handle_destroy(nh);
@@ -238,19 +240,21 @@ static void extract_header_vars(sofia_profile_t *profile, sip_t const *sip,
 			switch_stream_handle_t stream = { 0 };
 			int x = 0;
 
-			SWITCH_STANDARD_STREAM(stream);
-
-			for(vp = sip->sip_via; vp; vp = vp->v_next) {
-				char *v = sip_header_as_string(nh->nh_home, (void *) vp);
-
-				stream.write_function(&stream, x == 0 ? "%s" : ",%s", v);
-				su_free(nh->nh_home, v);
+			if (switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_OUTBOUND) {
+				SWITCH_STANDARD_STREAM(stream);
 				
-				x++;
+				for(vp = sip->sip_via; vp; vp = vp->v_next) {
+					char *v = sip_header_as_string(nh->nh_home, (void *) vp);
+					
+					stream.write_function(&stream, x == 0 ? "%s" : ",%s", v);
+					su_free(nh->nh_home, v);
+					
+					x++;
+				}
+				
+				switch_channel_set_variable(channel, "sip_recover_via", (char *)stream.data);
+				free(stream.data);
 			}
-
-			switch_channel_set_variable(channel, "sip_recover_via", (char *)stream.data);
-			free(stream.data);
 		}
 		
 		if (sip->sip_from) {
@@ -335,21 +339,6 @@ void sofia_handle_sip_i_notify(switch_core_session_t *session, int status,
 	/* make sure we have a proper event */
 	if (!sip || !sip->sip_event) {
 		goto error;
-	}
-
-	/* the following could be refactored back to the calling event handler here in sofia.c XXX MTK */
-	/* potentially interesting note: for Linksys shared appearance, we'll probably have to set up to get bare notifies
-	 * and pass them inward to the sla handler. we'll have to set NUTAG_APPL_METHOD("NOTIFY") when creating
-	 * nua, and also pick them off special elsewhere here in sofia.c - MTK
-	 * *and* for Linksys, I believe they use "sa" as their magic appearance agent name for those blind notifies, so
-	 * we'll probably have to change to match
-	 */
-	if (sofia_test_pflag(profile, PFLAG_MANAGE_SHARED_APPEARANCE)) {
-
-		if (sip->sip_request->rq_url->url_user && !strncmp(sip->sip_request->rq_url->url_user, "sla-agent", sizeof("sla-agent"))) {
-			sofia_sla_handle_sip_i_notify(nua, profile, nh, sip, de, tags);
-			goto end;
-		}
 	}
 
 	/* Automatically return a 200 OK for Event: keep-alive */
@@ -937,7 +926,7 @@ static void our_sofia_event_callback(nua_event_t event,
 		uint32_t sess_count = switch_core_session_count();
 		uint32_t sess_max = switch_core_session_limit(0);
 		
-		if (sess_count >= sess_max || !sofia_test_pflag(profile, PFLAG_RUNNING) || !switch_core_ready()) {
+		if (sess_count >= sess_max || !sofia_test_pflag(profile, PFLAG_RUNNING) || !switch_core_ready_inbound()) {
 			nua_respond(nh, 503, "Maximum Calls In Progress", SIPTAG_RETRY_AFTER_STR("300"), TAG_END());
 
 			//switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "No more sessions allowed at this time.\n");
@@ -3176,6 +3165,8 @@ switch_status_t reconfig_sofia(sofia_profile_t *profile)
 						profile->user_agent_filter = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "max-registrations-per-extension")) {
 						profile->max_registrations_perext = atoi(val);
+					} else if (!strcasecmp(var,"presence-privacy")) {
+						profile->presence_privacy = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "rfc2833-pt")) {
 						profile->te = (switch_payload_t) atoi(val);
 					} else if (!strcasecmp(var, "cng-pt") && !(sofia_test_pflag(profile, PFLAG_SUPPRESS_CNG))) {
@@ -4082,6 +4073,10 @@ switch_status_t config_sofia(int reload, char *profile_name)
 						} else if (switch_true(val)) {
 							profile->pres_type = PRES_TYPE_FULL;
 						}
+					} else if (!strcasecmp(var, "presence-privacy")) {
+						if (switch_true(val)) {
+							sofia_set_pflag(profile, PFLAG_PRESENCE_PRIVACY);
+						}
 					} else if (!strcasecmp(var, "manage-shared-appearance")) {
 						if (switch_true(val)) {
 							sofia_set_pflag(profile, PFLAG_MANAGE_SHARED_APPEARANCE);
@@ -4089,8 +4084,9 @@ switch_status_t config_sofia(int reload, char *profile_name)
 							sofia_set_pflag(profile, PFLAG_MULTIREG);
 
 						} else if (!strcasecmp(val, "sylantro")) {
-							profile->sla_contact = switch_core_sprintf(profile->pool, "sla-agent");
-							sofia_set_pflag(profile, PFLAG_MANAGE_SHARED_APPEARANCE_SYLANTRO);
+							switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, 
+											  "Sylantro support has been removed.\n"
+											  "It was incomplete anyway, and we fully support the broadsoft SCA shared line spec.");
 						}
 					} else if (!strcasecmp(var, "disable-srv")) {
 						if (switch_true(val)) {
@@ -5256,8 +5252,9 @@ static void mark_transfer_record(switch_core_session_t *session, const char *br_
 												  switch_channel_get_variable(channel, dvar1),
 												  switch_channel_get_variable(br_b_channel, uvar2),
 												  switch_channel_get_variable(br_b_channel, dvar2));
-		
+
 		switch_channel_add_variable_var_check(br_b_channel, SWITCH_TRANSFER_HISTORY_VARIABLE, cp->transfer_source, SWITCH_FALSE, SWITCH_STACK_PUSH);
+		switch_channel_set_variable(br_b_channel, SWITCH_TRANSFER_SOURCE_VARIABLE, cp->transfer_source);
 
 		switch_core_session_rwunlock(br_b_session);
 	}
@@ -5286,7 +5283,8 @@ static void mark_transfer_record(switch_core_session_t *session, const char *br_
 												  switch_channel_get_variable(br_a_channel, dvar2));
 		
 		switch_channel_add_variable_var_check(br_a_channel, SWITCH_TRANSFER_HISTORY_VARIABLE, cp->transfer_source, SWITCH_FALSE, SWITCH_STACK_PUSH);
-		
+		switch_channel_set_variable(br_a_channel, SWITCH_TRANSFER_SOURCE_VARIABLE, cp->transfer_source);
+
 		switch_core_session_rwunlock(br_a_session);
 	}
 										
@@ -8370,7 +8368,7 @@ void sofia_handle_sip_i_options(int status,
 	uint32_t sess_max = switch_core_session_limit(0);
 
 	if (sofia_test_pflag(profile, PFLAG_OPTIONS_RESPOND_503_ON_BUSY) &&
-			(sess_count >= sess_max || !sofia_test_pflag(profile, PFLAG_RUNNING) || !switch_core_ready())) {
+			(sess_count >= sess_max || !sofia_test_pflag(profile, PFLAG_RUNNING) || !switch_core_ready_inbound())) {
 		nua_respond(nh, 503, "Maximum Calls In Progress", NUTAG_WITH_THIS_MSG(de->data->e_msg), SIPTAG_RETRY_AFTER_STR("300"), TAG_END());
 	} else {
 		nua_respond(nh, SIP_200_OK, NUTAG_WITH_THIS_MSG(de->data->e_msg), TAG_END());

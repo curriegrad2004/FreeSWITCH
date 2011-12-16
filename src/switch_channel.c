@@ -103,6 +103,10 @@ static struct switch_cause_table CAUSE_CHART[] = {
 	{"PICKED_OFF", SWITCH_CAUSE_PICKED_OFF},
 	{"USER_NOT_REGISTERED", SWITCH_CAUSE_USER_NOT_REGISTERED},
 	{"PROGRESS_TIMEOUT", SWITCH_CAUSE_PROGRESS_TIMEOUT},
+	{"INVALID_GATEWAY", SWITCH_CAUSE_INVALID_GATEWAY},
+	{"GATEWAY_DOWN", SWITCH_CAUSE_GATEWAY_DOWN},
+	{"INVALID_URL", SWITCH_CAUSE_INVALID_URL},
+	{"INVALID_PROFILE", SWITCH_CAUSE_INVALID_PROFILE},
 	{NULL, 0}
 };
 
@@ -1671,6 +1675,15 @@ SWITCH_DECLARE(void) switch_channel_set_state_flag(switch_channel_t *channel, sw
 	switch_mutex_lock(channel->flag_mutex);
 	channel->state_flags[0] = 1;
 	channel->state_flags[flag] = 1;
+	switch_mutex_unlock(channel->flag_mutex);
+}
+
+SWITCH_DECLARE(void) switch_channel_clear_state_flag(switch_channel_t *channel, switch_channel_flag_t flag)
+{
+	switch_assert(channel != NULL);
+
+	switch_mutex_lock(channel->flag_mutex);
+	channel->state_flags[flag] = 0;
 	switch_mutex_unlock(channel->flag_mutex);
 }
 

@@ -87,6 +87,7 @@ typedef struct private_object private_object_t;
 #define MY_EVENT_GATEWAY_DEL "sofia::gateway_delete"
 #define MY_EVENT_RECOVERY "sofia::recovery_recv"
 #define MY_EVENT_RECOVERY_SEND "sofia::recovery_send"
+#define MY_EVENT_RECOVERY_RECOVERED "sofia::recovery_recovered"
 
 #define MULTICAST_EVENT "multicast::event"
 #define SOFIA_REPLACES_HEADER "_sofia_replaces_"
@@ -216,7 +217,7 @@ typedef enum {
 	PFLAG_UUID_AS_CALLID,
 	PFLAG_SCROOGE,
 	PFLAG_MANAGE_SHARED_APPEARANCE,
-	PFLAG_MANAGE_SHARED_APPEARANCE_SYLANTRO,
+	PFLAG_MANAGE_SHARED_APPEARANCE_SYLANTRO_DELETED_USE_ME,
 	PFLAG_DISABLE_SRV,
 	PFLAG_DISABLE_SRV503,
 	PFLAG_DISABLE_NAPTR,
@@ -232,6 +233,7 @@ typedef enum {
 	PFLAG_AUTO_NAT,
 	PFLAG_SIPCOMPACT,
 	PFLAG_SQL_IN_TRANS,
+	PFLAG_PRESENCE_PRIVACY,
 	PFLAG_PASS_CALLEE_ID,
 	PFLAG_LOG_AUTH_FAIL,
 	PFLAG_FORWARD_MWI_NOTIFY,
@@ -548,6 +550,7 @@ struct sofia_profile {
 	char *record_template;
 	char *record_path;
 	char *presence_hosts;
+	char *presence_privacy;
 	char *challenge_realm;
 	char *rtcp_audio_interval_msec;
 	char *rtcp_video_interval_msec;
@@ -631,6 +634,7 @@ struct sofia_profile {
 	int watchdog_enabled;
 	switch_mutex_t *gw_mutex;
 	uint32_t queued_events;
+	uint32_t cseq_base;
 };
 
 struct private_object {
@@ -1061,24 +1065,6 @@ switch_status_t sofia_glue_tech_set_codec(private_object_t *tech_pvt, int force)
 void sofia_wait_for_reply(struct private_object *tech_pvt, nua_event_t event, uint32_t timeout);
 void sofia_glue_set_image_sdp(private_object_t *tech_pvt, switch_t38_options_t *t38_options, int insist);
 
-/*
- * SLA (shared line appearance) entrypoints
- */
-
-void sofia_sla_handle_register(nua_t *nua, sofia_profile_t *profile, sip_t const *sip,
-								sofia_dispatch_event_t *de, long exptime, const char *full_contact);
-void sofia_sla_handle_sip_i_publish(nua_t *nua, sofia_profile_t *profile, nua_handle_t *nh, sip_t const *sip,
-								sofia_dispatch_event_t *de, tagi_t tags[]);
-void sofia_sla_handle_sip_i_subscribe(nua_t *nua, const char *contact_str, sofia_profile_t *profile, nua_handle_t *nh, sip_t const *sip,
-								sofia_dispatch_event_t *de, tagi_t tags[]);
-void sofia_sla_handle_sip_r_subscribe(int status,
-									  char const *phrase,
-									  nua_t *nua, sofia_profile_t *profile, nua_handle_t *nh, sofia_private_t *sofia_private, sip_t const *sip,
-								sofia_dispatch_event_t *de,
-									  tagi_t tags[]);
-void sofia_sla_handle_sip_i_notify(nua_t *nua, sofia_profile_t *profile, nua_handle_t *nh, sip_t const *sip,
-								sofia_dispatch_event_t *de, tagi_t tags[]);
-
 /* 
  * Logging control functions
  */
@@ -1142,3 +1128,4 @@ char *sofia_glue_gen_contact_str(sofia_profile_t *profile, sip_t const *sip, sof
 void sofia_glue_pause_jitterbuffer(switch_core_session_t *session, switch_bool_t on);
 void sofia_process_dispatch_event(sofia_dispatch_event_t **dep);
 char *sofia_glue_get_host(const char *str, switch_memory_pool_t *pool);
+void sofia_presence_check_subscriptions(sofia_profile_t *profile, time_t now);

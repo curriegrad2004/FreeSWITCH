@@ -3291,7 +3291,7 @@ switch_status_t sofia_glue_activate_rtp(private_object_t *tech_pvt, switch_rtp_f
 		switch_rtp_intentional_bugs(tech_pvt->rtp_session, tech_pvt->rtp_bugs | tech_pvt->profile->manual_rtp_bugs);
 
 		if ((vad_in && inb) || (vad_out && !inb)) {
-			switch_rtp_enable_vad(tech_pvt->rtp_session, tech_pvt->session, &tech_pvt->read_codec, SWITCH_VAD_FLAG_TALKING);
+			switch_rtp_enable_vad(tech_pvt->rtp_session, tech_pvt->session, &tech_pvt->read_codec, SWITCH_VAD_FLAG_TALKING | SWITCH_VAD_FLAG_EVENTS_TALK | SWITCH_VAD_FLAG_EVENTS_NOTALK);
 			sofia_set_flag(tech_pvt, TFLAG_VAD);
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), SWITCH_LOG_DEBUG, "AUDIO RTP Engage VAD for %s ( %s %s )\n",
 							  switch_channel_get_name(switch_core_session_get_channel(tech_pvt->session)), vad_in ? "in" : "", vad_out ? "out" : "");
@@ -5904,7 +5904,8 @@ int sofia_glue_init_sql(sofia_profile_t *profile)
 		"   network_port    VARCHAR(6),\n"
 		"   network_ip      VARCHAR(255),\n"
 		"   version         INTEGER DEFAULT 0 NOT NULL,\n"
-		"   orig_proto      VARCHAR(255)\n"
+		"   orig_proto      VARCHAR(255),\n"
+		"   full_to         VARCHAR(255)\n"
 		");\n";
 
 	char auth_sql[] =
@@ -6047,10 +6048,8 @@ int sofia_glue_init_sql(sofia_profile_t *profile)
 
 	free(test_sql);
 
-
-	test_sql = switch_mprintf("delete from sip_subscriptions where hostname='%q' "
-							  "and (version < 0 or orig_proto like '%%' or network_ip like '%%' or network_port like '%%')",
-							  mod_sofia_globals.hostname);
+	test_sql = switch_mprintf("delete from sip_subscriptions where hostname='%q' and full_to='XXX'", mod_sofia_globals.hostname);
+							  
 	switch_cache_db_test_reactive(dbh, test_sql, "DROP TABLE sip_subscriptions", sub_sql);
 
 	free(test_sql);
