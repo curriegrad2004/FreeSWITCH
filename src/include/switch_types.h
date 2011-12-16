@@ -25,6 +25,7 @@
  * 
  * Anthony Minessale II <anthm@freeswitch.org>
  * Bret McDanel <trixter AT 0xdecafbad dot com>
+ * Joseph Sullivan <jossulli@amazon.com>
  *
  * switch_types.h -- Data Types
  *
@@ -132,6 +133,7 @@ SWITCH_BEGIN_EXTERN_C
 #define SWITCH_CURRENT_APPLICATION_VARIABLE "current_application"
 #define SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE "proto_specific_hangup_cause"
 #define SWITCH_TRANSFER_HISTORY_VARIABLE "transfer_history"
+#define SWITCH_TRANSFER_SOURCE_VARIABLE "transfer_source"
 
 #define SWITCH_CHANNEL_EXECUTE_ON_ANSWER_VARIABLE "execute_on_answer"
 #define SWITCH_CHANNEL_EXECUTE_ON_PRE_ANSWER_VARIABLE "execute_on_pre_answer"
@@ -292,25 +294,27 @@ typedef uint32_t switch_eavesdrop_flag_t;
 typedef enum {
 	SCF_NONE = 0,
 	SCF_USE_SQL = (1 << 0),
-	SCF_NO_NEW_SESSIONS = (1 << 1),
-	SCF_SHUTTING_DOWN = (1 << 2),
-	SCF_VG = (1 << 3),
-	SCF_RESTART = (1 << 4),
-	SCF_SHUTDOWN_REQUESTED = (1 << 5),
-	SCF_USE_AUTO_NAT = (1 << 6),
-	SCF_EARLY_HANGUP = (1 << 7),
-	SCF_CALIBRATE_CLOCK = (1 << 8),
-	SCF_USE_HEAVY_TIMING = (1 << 9),
-	SCF_USE_CLOCK_RT = (1 << 10),
-	SCF_VERBOSE_EVENTS = (1 << 11),
-	SCF_USE_WIN32_MONOTONIC = (1 << 12),
-	SCF_AUTO_SCHEMAS = (1 << 13),
-	SCF_MINIMAL = (1 << 14),
-	SCF_USE_NAT_MAPPING = (1 << 15),
-	SCF_CLEAR_SQL = (1 << 16),
-	SCF_THREADED_SYSTEM_EXEC = (1 << 17),
-	SCF_SYNC_CLOCK_REQUESTED = (1 << 18),
-	SCF_CORE_ODBC_REQ = (1 << 19)
+	SCF_NO_NEW_OUTBOUND_SESSIONS = (1 << 1),
+	SCF_NO_NEW_INBOUND_SESSIONS = (1 << 2),
+	SCF_NO_NEW_SESSIONS = (SCF_NO_NEW_OUTBOUND_SESSIONS | SCF_NO_NEW_INBOUND_SESSIONS),
+	SCF_SHUTTING_DOWN = (1 << 3),
+	SCF_VG = (1 << 4),
+	SCF_RESTART = (1 << 5),
+	SCF_SHUTDOWN_REQUESTED = (1 << 6),
+	SCF_USE_AUTO_NAT = (1 << 7),
+	SCF_EARLY_HANGUP = (1 << 8),
+	SCF_CALIBRATE_CLOCK = (1 << 9),
+	SCF_USE_HEAVY_TIMING = (1 << 10),
+	SCF_USE_CLOCK_RT = (1 << 11),
+	SCF_VERBOSE_EVENTS = (1 << 12),
+	SCF_USE_WIN32_MONOTONIC = (1 << 13),
+	SCF_AUTO_SCHEMAS = (1 << 14),
+	SCF_MINIMAL = (1 << 15),
+	SCF_USE_NAT_MAPPING = (1 << 16),
+	SCF_CLEAR_SQL = (1 << 17),
+	SCF_THREADED_SYSTEM_EXEC = (1 << 18),
+	SCF_SYNC_CLOCK_REQUESTED = (1 << 19),
+	SCF_CORE_ODBC_REQ = (1 << 20)
 } switch_core_flag_enum_t;
 typedef uint32_t switch_core_flag_t;
 
@@ -872,6 +876,7 @@ typedef enum {
 	SWITCH_MESSAGE_INDICATE_RECOVERY_REFRESH,
 	SWITCH_MESSAGE_INDICATE_SIGNAL_DATA,
 	SWITCH_MESSAGE_INDICATE_INFO,
+	SWITCH_MESSAGE_INDICATE_AUDIO_DATA,
 	SWITCH_MESSAGE_INVALID
 } switch_core_session_message_types_t;
 
@@ -1397,6 +1402,9 @@ SMBF_READ_REPLACE - Replace the Read Stream
 SMBF_STEREO - Record in stereo
 SMBF_ANSWER_RECORD_REQ - Don't record until the channel is answered
 SMBF_THREAD_LOCK - Only let the same thread who created the bug remove it.
+SMBF_PRUNE - 
+SMBF_NO_PAUSE - 
+SMBF_STEREO_SWAP - Record in stereo: Write Stream - left channel, Read Stream - right channel
 </pre>
 */
 typedef enum {
@@ -1410,7 +1418,8 @@ typedef enum {
 	SMBF_ANSWER_REQ = (1 << 6),
 	SMBF_THREAD_LOCK = (1 << 7),
 	SMBF_PRUNE = (1 << 8),
-	SMBF_NO_PAUSE = (1 << 9)
+	SMBF_NO_PAUSE = (1 << 9),
+	SMBF_STEREO_SWAP = (1 << 10)
 } switch_media_bug_flag_enum_t;
 typedef uint32_t switch_media_bug_flag_t;
 
@@ -1682,11 +1691,17 @@ typedef enum {
 	SWITCH_CAUSE_MEDIA_TIMEOUT = 604,
 	SWITCH_CAUSE_PICKED_OFF = 605,
 	SWITCH_CAUSE_USER_NOT_REGISTERED = 606,
-	SWITCH_CAUSE_PROGRESS_TIMEOUT = 607
+	SWITCH_CAUSE_PROGRESS_TIMEOUT = 607,
+	SWITCH_CAUSE_INVALID_GATEWAY = 608,
+	SWITCH_CAUSE_GATEWAY_DOWN = 609,
+	SWITCH_CAUSE_INVALID_URL = 610,
+	SWITCH_CAUSE_INVALID_PROFILE = 611
 } switch_call_cause_t;
 
 typedef enum {
 	SCSC_PAUSE_INBOUND,
+	SCSC_PAUSE_OUTBOUND,
+	SCSC_PAUSE_ALL,
 	SCSC_HUPALL,
 	SCSC_SHUTDOWN,
 	SCSC_CHECK_RUNNING,
@@ -1712,6 +1727,8 @@ typedef enum {
 	SCSC_MIN_IDLE_CPU,
 	SCSC_VERBOSE_EVENTS,
 	SCSC_SHUTDOWN_CHECK,
+	SCSC_PAUSE_INBOUND_CHECK,
+	SCSC_PAUSE_OUTBOUND_CHECK,
 	SCSC_PAUSE_CHECK,
 	SCSC_READY_CHECK,
 	SCSC_THREADED_SYSTEM_EXEC,

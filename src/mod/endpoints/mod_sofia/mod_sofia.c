@@ -326,8 +326,11 @@ static int hangup_cause_to_sip(switch_call_cause_t cause)
 	case SWITCH_CAUSE_REDIRECTION_TO_NEW_DESTINATION:
 		return 410;
 	case SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER:
+	case SWITCH_CAUSE_INVALID_PROFILE:
 		return 502;
 	case SWITCH_CAUSE_INVALID_NUMBER_FORMAT:
+	case SWITCH_CAUSE_INVALID_URL:
+	case SWITCH_CAUSE_INVALID_GATEWAY:
 		return 484;
 	case SWITCH_CAUSE_FACILITY_REJECTED:
 		return 501;
@@ -338,6 +341,7 @@ static int hangup_cause_to_sip(switch_call_cause_t cause)
 	case SWITCH_CAUSE_NETWORK_OUT_OF_ORDER:
 	case SWITCH_CAUSE_NORMAL_TEMPORARY_FAILURE:
 	case SWITCH_CAUSE_SWITCH_CONGESTION:
+	case SWITCH_CAUSE_GATEWAY_DOWN:
 		return 503;
 	case SWITCH_CAUSE_OUTGOING_CALL_BARRED:
 	case SWITCH_CAUSE_INCOMING_CALL_BARRED:
@@ -1014,39 +1018,66 @@ static switch_status_t sofia_read_frame(switch_core_session_t *session, switch_f
 				switch_event_t *event;
 
 				if (switch_event_create(&event, SWITCH_EVENT_RECV_RTCP_MESSAGE) == SWITCH_STATUS_SUCCESS) {
-					char buf[30];
+					char value[30];
+					char header[50];
+					int i;
 
 					char *uuid = switch_core_session_get_uuid(session);
 					if (uuid) {
 						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Unique-ID", switch_core_session_get_uuid(session));
 					}
 
-					snprintf(buf, sizeof(buf), "%.8x", rtcp_frame.ssrc);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "SSRC", buf);
+					snprintf(value, sizeof(value), "%.8x", rtcp_frame.ssrc);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "SSRC", value);
 
-					snprintf(buf, sizeof(buf), "%u", rtcp_frame.ntp_msw);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "NTP-Most-Significant-Word", buf);
+					snprintf(value, sizeof(value), "%u", rtcp_frame.ntp_msw);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "NTP-Most-Significant-Word", value);
 
-					snprintf(buf, sizeof(buf), "%u", rtcp_frame.ntp_lsw);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "NTP-Least-Significant-Word", buf);
+					snprintf(value, sizeof(value), "%u", rtcp_frame.ntp_lsw);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "NTP-Least-Significant-Word", value);
 
-					snprintf(buf, sizeof(buf), "%u", rtcp_frame.timestamp);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "RTP-Timestamp", buf);
+					snprintf(value, sizeof(value), "%u", rtcp_frame.timestamp);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "RTP-Timestamp", value);
 
-					snprintf(buf, sizeof(buf), "%u", rtcp_frame.packet_count);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Sender-Packet-Count", buf);
+					snprintf(value, sizeof(value), "%u", rtcp_frame.packet_count);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Sender-Packet-Count", value);
 
-					snprintf(buf, sizeof(buf), "%u", rtcp_frame.octect_count);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Octect-Packet-Count", buf);
+					snprintf(value, sizeof(value), "%u", rtcp_frame.octect_count);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Octect-Packet-Count", value);
 
-					snprintf(buf, sizeof(buf), "%" SWITCH_SIZE_T_FMT, tech_pvt->read_frame.timestamp);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Last-RTP-Timestamp", buf);
+					snprintf(value, sizeof(value), "%" SWITCH_SIZE_T_FMT, tech_pvt->read_frame.timestamp);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Last-RTP-Timestamp", value);
 
-					snprintf(buf, sizeof(buf), "%u", tech_pvt->read_frame.rate);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "RTP-Rate", buf);
+					snprintf(value, sizeof(value), "%u", tech_pvt->read_frame.rate);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "RTP-Rate", value);
 
-					snprintf(buf, sizeof(buf), "%" SWITCH_TIME_T_FMT, switch_time_now());
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Capture-Time", buf);
+					snprintf(value, sizeof(value), "%" SWITCH_TIME_T_FMT, switch_time_now());
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Capture-Time", value);
+
+					 // Add sources info
+					for (i = 0; i < rtcp_frame.report_count; i++) {
+						snprintf(header, sizeof(header), "Source%u-SSRC", i);
+						snprintf(value, sizeof(value), "%.8x", rtcp_frame.reports[i].ssrc);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header, value);
+						snprintf(header, sizeof(header), "Source%u-Fraction", i);
+						snprintf(value, sizeof(value), "%u", rtcp_frame.reports[i].fraction);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header, value);
+						snprintf(header, sizeof(header), "Source%u-Lost", i);
+						snprintf(value, sizeof(value), "%u", rtcp_frame.reports[i].lost);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header, value);
+						snprintf(header, sizeof(header), "Source%u-Highest-Sequence-Number-Received", i);
+						snprintf(value, sizeof(value), "%u", rtcp_frame.reports[i].highest_sequence_number_received);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header, value);
+						snprintf(header, sizeof(header), "Source%u-Jitter", i);
+						snprintf(value, sizeof(value), "%u", rtcp_frame.reports[i].jitter);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header, value);
+						snprintf(header, sizeof(header), "Source%u-LSR", i);
+						snprintf(value, sizeof(value), "%u", rtcp_frame.reports[i].lsr);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header, value);
+						snprintf(header, sizeof(header), "Source%u-DLSR", i);
+						snprintf(value, sizeof(value), "%u", rtcp_frame.reports[i].dlsr);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header, value);
+					}
 
 					switch_event_fire(&event);
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG10, "Dispatched RTCP event\n");
@@ -1785,6 +1816,28 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 		}
 		break;
 
+	case SWITCH_MESSAGE_INDICATE_AUDIO_DATA:
+		{
+			if (switch_rtp_ready(tech_pvt->rtp_session)) {
+				if (msg->numeric_arg) {
+					if (switch_channel_test_flag(tech_pvt->channel, CF_JITTERBUFFER)) {
+						switch_rtp_pause_jitter_buffer(tech_pvt->rtp_session, SWITCH_TRUE);
+						sofia_set_flag(tech_pvt, TFLAG_JB_PAUSED);
+					}
+
+					rtp_flush_read_buffer(tech_pvt->rtp_session, SWITCH_RTP_FLUSH_UNSTICK);
+					
+				} else {
+					if (sofia_test_flag(tech_pvt, TFLAG_JB_PAUSED)) {
+						sofia_clear_flag(tech_pvt, TFLAG_JB_PAUSED);
+						if (switch_channel_test_flag(tech_pvt->channel, CF_JITTERBUFFER)) {
+							switch_rtp_pause_jitter_buffer(tech_pvt->rtp_session, SWITCH_FALSE);
+						}
+					}
+				}
+			}
+		}
+		break;
 	case SWITCH_MESSAGE_INDICATE_MEDIA_REDIRECT:
 		{
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "%s Sending media re-direct:\n%s\n",
@@ -4155,10 +4208,23 @@ SWITCH_STANDARD_API(sofia_function)
 			stream->write_function(stream, "Flushing recovery database.\n");
 		} else {
 			int x = sofia_glue_recover(SWITCH_FALSE);
+			switch_event_t *event = NULL;
 
 			if (x) {
+				if (switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM,
+					MY_EVENT_RECOVERY_RECOVERED) == SWITCH_STATUS_SUCCESS) {
+					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "recovered_calls", "%d", x);
+					switch_event_fire(&event);
+				}
+
 				stream->write_function(stream, "Recovered %d call(s)\n", x);
 			} else {
+				if (switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM,
+					MY_EVENT_RECOVERY_RECOVERED) == SWITCH_STATUS_SUCCESS) {
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "recovered_calls", "0");
+					switch_event_fire(&event);
+				}
+
 				stream->write_function(stream, "No calls to recover.\n");
 			}
 		}
@@ -4231,7 +4297,7 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 	*new_session = NULL;
 
 	if (!outbound_profile || zstr(outbound_profile->destination_number)) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Invalid Destination\n");
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Invalid Empty Destination\n");
 		goto error;
 	}
 
@@ -4268,30 +4334,30 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 		char *gw, *params;
 
 		if (!(gw = strchr(profile_name, '/'))) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid URL\n");
-			cause = SWITCH_CAUSE_INVALID_NUMBER_FORMAT;
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid URL \'%s\'\n", profile_name);
+			cause = SWITCH_CAUSE_INVALID_URL;
 			goto error;
 		}
 
 		*gw++ = '\0';
 
 		if (!(dest = strchr(gw, '/'))) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid URL\n");
-			cause = SWITCH_CAUSE_INVALID_NUMBER_FORMAT;
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid URL \'%s\'\n", gw);
+			cause = SWITCH_CAUSE_INVALID_URL;
 			goto error;
 		}
 
 		*dest++ = '\0';
 
 		if (!(gateway_ptr = sofia_reg_find_gateway(gw))) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid Gateway\n");
-			cause = SWITCH_CAUSE_INVALID_NUMBER_FORMAT;
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid Gateway \'%s\'\n", gw);
+			cause = SWITCH_CAUSE_INVALID_GATEWAY;
 			goto error;
 		}
 
 		if (gateway_ptr->status != SOFIA_GATEWAY_UP) {
-			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Gateway is down!\n");
-			cause = SWITCH_CAUSE_NETWORK_OUT_OF_ORDER;
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Gateway \'%s\' is down!\n", gw);
+			cause = SWITCH_CAUSE_GATEWAY_DOWN;
 			gateway_ptr->ob_failed_calls++;
 			goto error;
 		}
@@ -4398,14 +4464,14 @@ static switch_call_cause_t sofia_outgoing_channel(switch_core_session_t *session
 	} else {
 		if (!(dest = strchr(profile_name, '/'))) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid URL\n");
-			cause = SWITCH_CAUSE_INVALID_NUMBER_FORMAT;
+			cause = SWITCH_CAUSE_INVALID_URL;
 			goto error;
 		}
 		*dest++ = '\0';
 
 		if (!(profile = sofia_glue_find_profile(profile_name))) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid Profile\n");
-			cause = SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER;
+			cause = SWITCH_CAUSE_INVALID_PROFILE;
 			goto error;
 		}
 

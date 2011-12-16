@@ -36,6 +36,7 @@
 
 #include <switch.h>
 #include <switch_stun.h>
+#include <apr_network_io.h>
 #undef PACKAGE_NAME
 #undef PACKAGE_STRING
 #undef PACKAGE_TARNAME
@@ -455,6 +456,16 @@ static handle_rfc2833_result_t handle_rfc2833(switch_rtp_t *rtp_session, switch_
 
 	return RESULT_CONTINUE;
 }
+
+struct switch_rtcp_report_block {
+	uint32_t ssrc; /* The SSRC identifier of the source to which the information in this reception report block pertains. */
+	unsigned int fraction :8; /* The fraction of RTP data packets from source SSRC_n lost since the previous SR or RR packet was sent */
+	int lost :24; /* The total number of RTP data packets from source SSRC_n that have been lost since the beginning of reception */
+	uint32_t highest_sequence_number_received;
+	uint32_t jitter; /* An estimate of the statistical variance of the RTP data packet interarrival time, measured in timestamp units and expressed as an unsigned integer. */
+	uint32_t lsr; /* The middle 32 bits out of 64 in the NTP timestamp */
+	uint32_t dlsr; /* The delay, expressed in units of 1/65536 seconds, between receiving the last SR packet from source SSRC_n and sending this reception report block */
+};
 
 static int global_init = 0;
 static int rtp_common_write(switch_rtp_t *rtp_session,
@@ -3482,6 +3493,11 @@ SWITCH_DECLARE(switch_status_t) switch_rtcp_zerocopy_read_frame(switch_rtp_t *rt
 	/* A fresh frame has been found! */
 	if (rtp_session->rtcp_fresh_frame) {
 		struct switch_rtcp_senderinfo* sr = (struct switch_rtcp_senderinfo*)rtp_session->rtcp_recv_msg.body;
+		/* we remove the header lenght because with directly have a pointer on the body */
+		unsigned packet_length = (ntohs((uint16_t) rtp_session->rtcp_recv_msg.header.length) + 1) * 4 - sizeof(switch_rtcp_hdr_t);
+		unsigned int reportsOffset = sizeof(struct switch_rtcp_senderinfo);
+		int i = 0;
+
 		/* turn the flag off! */
 		rtp_session->rtcp_fresh_frame = 0;
 
@@ -3492,6 +3508,22 @@ SWITCH_DECLARE(switch_status_t) switch_rtcp_zerocopy_read_frame(switch_rtp_t *rt
 		frame->timestamp = ntohl(sr->ts);
 		frame->packet_count =  ntohl(sr->pc);
 		frame->octect_count = ntohl(sr->oc);
+
+		for (int offset = reportsOffset; offset < packet_length; offset += sizeof(struct switch_rtcp_report_block)) {
+			struct switch_rtcp_report_block* report = (struct switch_rtcp_report_block*) (rtp_session->rtcp_recv_msg.body + offset);
+			frame->reports[i].ssrc = ntohl(report->ssrc);
+			frame->reports[i].fraction = ntohl(report->fraction);
+			frame->reports[i].lost = ntohl(report->lost);
+			frame->reports[i].highest_sequence_number_received = ntohl(report->highest_sequence_number_received);
+			frame->reports[i].jitter = ntohl(report->jitter);
+			frame->reports[i].lsr = ntohl(report->lsr);
+			frame->reports[i].dlsr = ntohl(report->dlsr);
+			i++;
+			if (i >= MAX_REPORT_BLOCKS) {
+				break;
+			}
+		}
+		frame->report_count = i;
 
 		return SWITCH_STATUS_SUCCESS;
 	}
@@ -3772,10 +3804,13 @@ static int rtp_common_write(switch_rtp_t *rtp_session,
 								}
 								rtp_session->vad_data.hangover_hits = rtp_session->vad_data.hangunder_hits = rtp_session->vad_data.cng_count = 0;
 								if (switch_test_flag(&rtp_session->vad_data, SWITCH_VAD_FLAG_EVENTS_TALK)) {
-									switch_event_t *event;
-									if (switch_event_create(&event, SWITCH_EVENT_TALK) == SWITCH_STATUS_SUCCESS) {
-										switch_channel_event_set_data(switch_core_session_get_channel(rtp_session->vad_data.session), event);
-										switch_event_fire(&event);
+									const char *val = switch_channel_get_variable(switch_core_session_get_channel(rtp_session->vad_data.session), "fire_talk_events");
+									if (val && switch_true(val)) {
+										switch_event_t *event;
+										if (switch_event_create(&event, SWITCH_EVENT_TALK) == SWITCH_STATUS_SUCCESS) {
+											switch_channel_event_set_data(switch_core_session_get_channel(rtp_session->vad_data.session), event);
+											switch_event_fire(&event);
+										}
 									}
 								}
 							}
@@ -3788,10 +3823,13 @@ static int rtp_common_write(switch_rtp_t *rtp_session,
 									switch_clear_flag(&rtp_session->vad_data, SWITCH_VAD_FLAG_TALKING);
 									rtp_session->vad_data.hangover_hits = rtp_session->vad_data.hangunder_hits = rtp_session->vad_data.cng_count = 0;
 									if (switch_test_flag(&rtp_session->vad_data, SWITCH_VAD_FLAG_EVENTS_NOTALK)) {
-										switch_event_t *event;
-										if (switch_event_create(&event, SWITCH_EVENT_NOTALK) == SWITCH_STATUS_SUCCESS) {
-											switch_channel_event_set_data(switch_core_session_get_channel(rtp_session->vad_data.session), event);
-											switch_event_fire(&event);
+										const char *val = switch_channel_get_variable(switch_core_session_get_channel(rtp_session->vad_data.session), "fire_notalk_events");
+										if (val && switch_true(val)) {
+											switch_event_t *event;
+											if (switch_event_create(&event, SWITCH_EVENT_NOTALK) == SWITCH_STATUS_SUCCESS) {
+												switch_channel_event_set_data(switch_core_session_get_channel(rtp_session->vad_data.session), event);
+												switch_event_fire(&event);
+											}
 										}
 									}
 								}
