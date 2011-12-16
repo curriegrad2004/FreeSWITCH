@@ -271,7 +271,7 @@ void daemonize(int do_wait)
 		break;
 	default:
 		{
-			fprintf(stderr, "%d Backgrounding.\n", (int) pid);
+		//	fprintf(stderr, "%d Backgrounding.\n", (int) pid);
 
 
 			if (do_wait) {
@@ -287,16 +287,16 @@ void daemonize(int do_wait)
 
 				while(--sanity && !system_ready) {
 				
-					if (sanity % 2 == 0) {
-						printf("FreeSWITCH[%d] Waiting for background process pid:%d to be ready.....\n", getpid(), (int) pid);
-					}
+				//	if (sanity % 2 == 0) {
+				//		printf("FreeSWITCH[%d] Waiting for background process pid:%d to be ready.....\n", getpid(), (int) pid);
+				//	}
 					sleep(1);
 				}
 
 				if (system_ready == 1) {
-					printf("FreeSWITCH[%d] System Ready pid:%d\n", (int) getpid(), (int) pid);
+				//	printf("FreeSWITCH[%d] System Ready pid:%d\n", (int) getpid(), (int) pid);
 				} else {
-					printf("FreeSWITCH[%d] Error starting system! pid:%d\n", (int)getpid(), (int) pid);
+	        	//	printf("FreeSWITCH[%d] Error starting system! pid:%d\n", (int)getpid(), (int) pid);
 					kill(pid, 9);
 					exit(-1);
 				}
