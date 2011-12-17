@@ -131,6 +131,9 @@ typedef struct private_object private_object_t;
 #include "sofia-sip/sip_parser.h"
 #include "sofia-sip/tport_tag.h"
 #include <sofia-sip/msg.h>
+#ifndef WIN32
+#include <sofia-sip/uniqueid.h>
+#endif
 
 typedef enum {
 	DTMF_2833,
@@ -203,6 +206,7 @@ typedef enum {
 	PFLAG_WORKER_RUNNING,
 	PFLAG_UNREG_OPTIONS_FAIL,
 	PFLAG_DISABLE_TIMER,
+	PFLAG_ENABLE_RFC5626,
 	PFLAG_DISABLE_100REL,
 	PFLAG_AGGRESSIVE_NAT_DETECTION,
 	PFLAG_RECIEVED_IN_NAT_REG_CONTACT,
@@ -217,7 +221,7 @@ typedef enum {
 	PFLAG_UUID_AS_CALLID,
 	PFLAG_SCROOGE,
 	PFLAG_MANAGE_SHARED_APPEARANCE,
-	PFLAG_MANAGE_SHARED_APPEARANCE_SYLANTRO_DELETED_USE_ME,
+	PFLAG_STANDBY,
 	PFLAG_DISABLE_SRV,
 	PFLAG_DISABLE_SRV503,
 	PFLAG_DISABLE_NAPTR,
@@ -800,6 +804,7 @@ typedef enum {
 	AUTH_OK,
 	AUTH_FORBIDDEN,
 	AUTH_STALE,
+	AUTH_RENEWED,
 } auth_res_t;
 
 typedef struct {
@@ -839,6 +844,8 @@ switch_mutex_unlock(obj->flag_mutex);
 
 /* Function Prototypes */
 /*************************************************************************************************************************************************************/
+
+void sofia_glue_global_standby(switch_bool_t on);
 
 switch_status_t sofia_glue_activate_rtp(private_object_t *tech_pvt, switch_rtp_flag_t myflags);
 
