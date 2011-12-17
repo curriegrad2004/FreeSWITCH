@@ -857,7 +857,6 @@ static void our_sofia_event_callback(nua_event_t event,
 	int locked = 0;
 	int check_destroy = 1;
 
-
 	if (sofia_private && sofia_private->is_call && sofia_private->de) {
 		sofia_dispatch_event_t *qde = sofia_private->de;
 		sofia_private->de = NULL;
@@ -952,7 +951,7 @@ static void our_sofia_event_callback(nua_event_t event,
 											REG_INVITE, NULL, NULL, NULL);
 		}
 
-		if (auth_res != AUTH_OK) {
+		if ((auth_res != AUTH_OK && auth_res != AUTH_RENEWED)) {
 			//switch_channel_hangup(channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
 			nua_respond(nh, SIP_401_UNAUTHORIZED, TAG_END());
 			goto done;
@@ -1302,6 +1301,14 @@ void sofia_event_callback(nua_event_t event,
 	sofia_dispatch_event_t *de;
 
 
+	if (sofia_test_pflag(profile, PFLAG_STANDBY)) {
+		if (event < nua_r_set_params || event > nua_r_authenticate) {
+			nua_respond(nh, 503, "System Paused", TAG_END());
+		}
+		return;
+	}
+
+
 	switch_mutex_lock(profile->flag_mutex);
 	profile->queued_events++;
 	switch_mutex_unlock(profile->flag_mutex);
@@ -1586,6 +1593,12 @@ void *SWITCH_THREAD_FUNC sofia_profile_worker_thread_run(switch_thread_t *thread
 
 	/* While we're running, or there is a pending sql statment that we haven't appended to sqlbuf yet, because of a lack of buffer space */
 	while ((mod_sofia_globals.running == 1 && sofia_test_pflag(profile, PFLAG_RUNNING)) || sql) {
+
+		if (sofia_test_pflag(profile, PFLAG_STANDBY)) {
+			switch_yield(1000000);
+			continue;
+		}
+
 		if (sofia_test_pflag(profile, PFLAG_SQL_IN_TRANS)) {
 			/* Do we have enough statements or is the timeout expired */
 			while (sql || (sofia_test_pflag(profile, PFLAG_RUNNING) && mod_sofia_globals.running == 1 &&
@@ -1807,6 +1820,7 @@ void *SWITCH_THREAD_FUNC sofia_profile_thread_run(switch_thread_t *thread, void 
 	switch_event_t *s_event;
 	int use_100rel = !sofia_test_pflag(profile, PFLAG_DISABLE_100REL);
 	int use_timer = !sofia_test_pflag(profile, PFLAG_DISABLE_TIMER);
+	int use_rfc_5626 = sofia_test_pflag(profile, PFLAG_ENABLE_RFC5626);
 	const char *supported = NULL;
 	int sanity;
 	switch_thread_t *worker_thread;
@@ -1828,7 +1842,7 @@ void *SWITCH_THREAD_FUNC sofia_profile_thread_run(switch_thread_t *thread, void 
 		goto end;
 	}
 
-	supported = switch_core_sprintf(profile->pool, "%s%sprecondition, path, replaces", use_100rel ? "100rel, " : "", use_timer ? "timer, " : "");
+	supported = switch_core_sprintf(profile->pool, "%s%s%sprecondition, path, replaces", use_100rel ? "100rel, " : "", use_timer ? "timer, " : "", use_rfc_5626 ? "outbound, " : "");
 
 	if (sofia_test_pflag(profile, PFLAG_AUTO_NAT) && switch_nat_get_type()) {
 		if (switch_nat_add_mapping(profile->sip_port, SWITCH_NAT_UDP, NULL, SWITCH_FALSE) == SWITCH_STATUS_SUCCESS) {
@@ -2293,7 +2307,7 @@ static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag)
 		if ((gateway = switch_core_alloc(profile->pool, sizeof(*gateway)))) {
 			const char *sipip, *format;
 			switch_uuid_t uuid;
-			uint32_t ping_freq = 0, extension_in_contact = 0, distinct_to = 0;
+			uint32_t ping_freq = 0, extension_in_contact = 0, distinct_to = 0, rfc_5626 = 0;
 			int ping_max = 1, ping_min = -1;
 			char *register_str = "true", *scheme = "Digest",
 				*realm = NULL,
@@ -2308,7 +2322,8 @@ static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag)
 				*retry_seconds = "30",
 				*timeout_seconds = "60",
 				*from_user = "", *from_domain = NULL, *outbound_proxy = NULL, *register_proxy = NULL, *contact_host = NULL,
-				*contact_params = NULL, *params = NULL, *register_transport = NULL;
+				*contact_params = NULL, *params = NULL, *register_transport = NULL,
+				*reg_id = NULL, *str_rfc_5626 = NULL;
 
 			if (!context) {
 				context = "default";
@@ -2431,6 +2446,10 @@ static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag)
 					outbound_proxy = val;
 				} else if (!strcmp(var, "distinct-to")) {
 					distinct_to = switch_true(val);
+				} else if (!strcmp(var, "rfc-5626")) {
+					rfc_5626 = switch_true(val);
+				} else if (!strcmp(var, "reg-id")) {
+					reg_id = val;
 				} else if (!strcmp(var, "contact-params")) {
 					contact_params = val;
 				} else if (!strcmp(var, "register-transport")) {
@@ -2444,6 +2463,17 @@ static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag)
 					gateway->register_transport = transport;
 				}
 			}
+#ifndef WIN32
+			/* Windows todo figure this out! */
+			/* RFC 5626 enable in the GW profile and the UA profile */
+			if (rfc_5626 && sofia_test_pflag(profile, PFLAG_ENABLE_RFC5626)) {
+				char str_guid[su_guid_strlen + 1];
+				su_guid_t guid[1];
+				su_guid_generate(guid);
+				su_guid_sprintf(str_guid, su_guid_strlen + 1, guid);
+				str_rfc_5626 = switch_core_sprintf(gateway->pool, ";reg-id=%s;+sip.instance=\"<urn:uuid:%s>\"",reg_id,str_guid);
+			}
+#endif
 
 			if (ping_freq) {
 				if (ping_freq >= 5) {
@@ -2610,17 +2640,36 @@ static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag)
 			}
 
 			if (extension_in_contact) {
-				format = strchr(sipip, ':') ? "<sip:%s@[%s]:%d%s>" : "<sip:%s@%s:%d%s>";
-				gateway->register_contact = switch_core_sprintf(gateway->pool, format, extension,
-																sipip,
-																sofia_glue_transport_has_tls(gateway->register_transport) ?
-																profile->tls_sip_port : profile->sip_port, params);
+				if (rfc_5626) {
+					format = strchr(sipip, ':') ? "<sip:%s@[%s]:%d>%s" : "<sip:%s@%s:%d%s>%s";
+					gateway->register_contact = switch_core_sprintf(gateway->pool, format, extension,
+							sipip,
+							sofia_glue_transport_has_tls(gateway->register_transport) ?
+							profile->tls_sip_port : profile->sip_port, params, str_rfc_5626);
+
+				} else {
+					format = strchr(sipip, ':') ? "<sip:%s@[%s]:%d%s>" : "<sip:%s@%s:%d%s%s>";
+					gateway->register_contact = switch_core_sprintf(gateway->pool, format, extension,
+							sipip,
+							sofia_glue_transport_has_tls(gateway->register_transport) ?
+							profile->tls_sip_port : profile->sip_port, params,contact_params);
+				}
 			} else {
-				format = strchr(sipip, ':') ? "<sip:gw+%s@[%s]:%d%s>" : "<sip:gw+%s@%s:%d%s>";
-				gateway->register_contact = switch_core_sprintf(gateway->pool, format, gateway->name,
-																sipip,
-																sofia_glue_transport_has_tls(gateway->register_transport) ?
-																profile->tls_sip_port : profile->sip_port, params);
+				if (rfc_5626) {
+					format = strchr(sipip, ':') ? "<sip:gw+%s@[%s]:%d%s>%s" : "<sip:gw+%s@%s:%d%s>%s";
+					gateway->register_contact = switch_core_sprintf(gateway->pool, format, gateway->name,
+							sipip,
+							sofia_glue_transport_has_tls(gateway->register_transport) ?
+							profile->tls_sip_port : profile->sip_port, params, str_rfc_5626);
+
+				} else {
+					format = strchr(sipip, ':') ? "<sip:gw+%s@[%s]:%d%s>" : "<sip:gw+%s@%s:%d%s>";
+					gateway->register_contact = switch_core_sprintf(gateway->pool, format, gateway->name,
+							sipip,
+							sofia_glue_transport_has_tls(gateway->register_transport) ?
+							profile->tls_sip_port : profile->sip_port, params);
+
+				}
 			}
 
 			gateway->expires_str = switch_core_strdup(gateway->pool, expire_seconds);
@@ -2931,6 +2980,12 @@ switch_status_t reconfig_sofia(sofia_profile_t *profile)
 							sofia_set_pflag(profile, PFLAG_PRESENCE_MAP);
 						} else {
 							sofia_clear_pflag(profile, PFLAG_PRESENCE_MAP);
+						}
+					} else if (!strcasecmp(var, "profile-standby")) {
+						if (switch_true(val)) {
+							sofia_set_pflag(profile, PFLAG_STANDBY);
+						} else {
+							sofia_clear_pflag(profile, PFLAG_STANDBY);
 						}
 					} else if (!strcasecmp(var, "liberal-dtmf")) {
 						if (switch_true(val)) {
@@ -3662,6 +3717,12 @@ switch_status_t config_sofia(int reload, char *profile_name)
 						} else {
 							sofia_clear_pflag(profile, PFLAG_PRESENCE_MAP);
 						}
+					} else if (!strcasecmp(var, "profile-standby")) {
+						if (switch_true(val)) {
+							sofia_set_pflag(profile, PFLAG_STANDBY);
+						} else {
+							sofia_clear_pflag(profile, PFLAG_STANDBY);
+						}
 					} else if (!strcasecmp(var, "liberal-dtmf")) {
 						if (switch_true(val)) {
 							sofia_set_pflag(profile, PFLAG_LIBERAL_DTMF);
@@ -4215,6 +4276,10 @@ switch_status_t config_sofia(int reload, char *profile_name)
 					} else if (!strcasecmp(var, "enable-timer")) {
 						if (!switch_true(val)) {
 							sofia_set_pflag(profile, PFLAG_DISABLE_TIMER);
+						}
+					} else if (!strcasecmp(var, "enable-rfc-5626")) {
+						if (switch_true(val)) {
+							sofia_set_pflag(profile, PFLAG_ENABLE_RFC5626);
 						}
 					} else if (!strcasecmp(var, "minimum-session-expires")) {
 						profile->minimum_session_expires = atoi(val);
