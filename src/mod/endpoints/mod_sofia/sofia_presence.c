@@ -1110,7 +1110,7 @@ static void actual_sofia_presence_event_handler(switch_event_t *event)
 						free(buf);
 					}
 
-					sofia_glue_execute_sql_callback(profile, NULL, sql, sofia_presence_sub_callback, &helper);
+					sofia_glue_execute_sql_callback(profile, profile->ireg_mutex, sql, sofia_presence_sub_callback, &helper);
 					switch_safe_free(sql);
 					
 					sql = switch_mprintf("update sip_subscriptions set version=version+1 where event='dialog' and sub_to_user='%q' "
@@ -3665,7 +3665,7 @@ void sofia_presence_check_subscriptions(sofia_profile_t *profile, time_t now)
 
 		sql = switch_mprintf("delete from sip_subscriptions where (expires = -1 or (expires > 0 and expires <= %ld)) and hostname='%q'",
 							 (long) now, mod_sofia_globals.hostname);
-		sofia_glue_actually_execute_sql(profile, sql, NULL);
+		sofia_glue_actually_execute_sql(profile, sql, profile->ireg_mutex);
 	}
 
 

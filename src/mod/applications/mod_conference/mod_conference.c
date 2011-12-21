@@ -312,6 +312,10 @@ typedef struct conference_obj {
 	uint32_t eflags;
 	uint32_t verbose_events;
 	int end_count;
+	/* allow extra time after 'endconf' member leaves */
+	switch_time_t endconf_time;
+	int endconf_grace_time;
+
 	uint32_t relationship_total;
 	uint32_t score;
 	int mux_loop_count;
@@ -364,6 +368,7 @@ struct conference_member {
 	switch_codec_t read_codec;
 	switch_codec_t write_codec;
 	char *rec_path;
+	switch_time_t rec_time;
 	uint8_t *frame;
 	uint8_t *last_frame;
 	uint32_t frame_size;
@@ -900,7 +905,9 @@ static switch_status_t conference_add_member(conference_obj_t *conference, confe
 		conference->count++;
 
 		if (switch_test_flag(member, MFLAG_ENDCONF)) {
-			if (conference->end_count++) {};
+			if (conference->end_count++) {
+				conference->endconf_time = 0;
+			}
 		}
 
 		conference_send_presence(conference);
@@ -1107,7 +1114,8 @@ static switch_status_t conference_del_member(conference_obj_t *conference, confe
 
 		if (switch_test_flag(member, MFLAG_ENDCONF)) {
 			if (!--conference->end_count) {
-				switch_set_flag_locked(conference, CFLAG_DESTRUCT);
+				//switch_set_flag_locked(conference, CFLAG_DESTRUCT);
+				conference->endconf_time = switch_epoch_time_now(NULL);
 			}
 		}
 
@@ -1691,6 +1699,13 @@ static void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, v
 			pool = fnode->pool;
 			fnode = NULL;
 			switch_core_destroy_memory_pool(&pool);
+		}
+
+		if (!conference->end_count && conference->endconf_time &&
+				switch_epoch_time_now(NULL) - conference->endconf_time > conference->endconf_grace_time) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Conference %s: endconf grace time exceeded (%u)\n",
+					conference->name, conference->endconf_grace_time);
+			switch_set_flag(conference, CFLAG_DESTRUCT);
 		}
 
 		switch_mutex_unlock(conference->mutex);
@@ -3167,6 +3182,7 @@ static void *SWITCH_THREAD_FUNC conference_record_thread_run(switch_thread_t *th
 	member->conference = conference;
 	member->native_rate = conference->rate;
 	member->rec_path = rec->path;
+	member->rec_time = switch_epoch_time_now(NULL);
 	fh.channels = 1;
 	fh.samplerate = conference->rate;
 	member->id = next_member_id();
@@ -4411,6 +4427,11 @@ static void conference_xlist(conference_obj_t *conference, switch_xml_t x_confer
 		switch_xml_set_attr_d(x_conference, "recording", "true");
 	}
 
+	if (conference->endconf_grace_time > 0) {
+		switch_snprintf(i, sizeof(i), "%u", conference->endconf_grace_time);
+		switch_xml_set_attr_d(x_conference, "endconf_grace_time", ival);
+	}
+
 	switch_snprintf(i, sizeof(i), "%d", switch_epoch_time_now(NULL) - conference->run_time);
 	switch_xml_set_attr_d(x_conference, "run_time", ival);
 
@@ -4436,6 +4457,22 @@ static void conference_xlist(conference_obj_t *conference, switch_xml_t x_confer
 		char tmp[50] = "";
 
 		if (switch_test_flag(member, MFLAG_NOCHANNEL)) {
+			if (member->rec_path) {
+				x_member = switch_xml_add_child_d(x_members, "member", moff++);
+				switch_assert(x_member);
+				switch_xml_set_attr_d(x_member, "type", "recording_node");
+				/* or:
+				x_member = switch_xml_add_child_d(x_members, "recording_node", moff++);
+				*/
+
+				x_tag = switch_xml_add_child_d(x_member, "record_path", count++);
+				switch_xml_set_txt_d(x_tag, member->rec_path);
+
+				x_tag = switch_xml_add_child_d(x_member, "join_time", count++);
+				switch_xml_set_attr_d(x_tag, "type", "UNIX-epoch");
+				switch_snprintf(i, sizeof(i), "%d", member->rec_time);
+				switch_xml_set_txt_d(x_tag, i);
+			}
 			continue;
 		}
 
@@ -5164,6 +5201,93 @@ static switch_status_t conf_api_sub_pin(conference_obj_t *conference, switch_str
 	}
 }
 
+static switch_status_t conf_api_sub_get(conference_obj_t *conference,
+		switch_stream_handle_t *stream, int argc, char **argv) {
+	int ret_status = SWITCH_STATUS_GENERR;
+
+	if (argc != 3) {
+		ret_status = SWITCH_STATUS_FALSE;
+	} else {
+		ret_status = SWITCH_STATUS_SUCCESS;
+		if (strcasecmp(argv[2], "run_time") == 0) {
+			stream->write_function(stream, "%ld",
+					switch_epoch_time_now(NULL) - conference->run_time);
+		} else if (strcasecmp(argv[2], "count") == 0) {
+			stream->write_function(stream, "%d",
+					conference->count);
+		} else if (strcasecmp(argv[2], "max_members") == 0) {
+			stream->write_function(stream, "%d",
+					conference->max_members);
+		} else if (strcasecmp(argv[2], "rate") == 0) {
+			stream->write_function(stream, "%d",
+					conference->rate);
+		} else if (strcasecmp(argv[2], "profile_name") == 0) {
+			stream->write_function(stream, "%s",
+					conference->profile_name);
+		} else if (strcasecmp(argv[2], "sound_prefix") == 0) {
+			stream->write_function(stream, "%s",
+					conference->sound_prefix);
+		} else if (strcasecmp(argv[2], "caller_id_name") == 0) {
+			stream->write_function(stream, "%s",
+					conference->caller_id_name);
+		} else if (strcasecmp(argv[2], "caller_id_number") == 0) {
+			stream->write_function(stream, "%s",
+					conference->caller_id_number);
+		} else if (strcasecmp(argv[2], "is_locked") == 0) {
+			stream->write_function(stream, "%s",
+					switch_test_flag(conference, CFLAG_LOCKED) ? "locked" : "");
+		} else if (strcasecmp(argv[2], "endconf_grace_time") == 0) {
+			stream->write_function(stream, "%d",
+					conference->endconf_grace_time);
+		} else {
+			ret_status = SWITCH_STATUS_FALSE;
+		}
+	}
+
+	return ret_status;
+}
+
+static switch_status_t conf_api_sub_set(conference_obj_t *conference,
+		switch_stream_handle_t *stream, int argc, char **argv) {
+	int ret_status = SWITCH_STATUS_GENERR;
+
+	if (argc != 4 || zstr(argv[3])) {
+		ret_status = SWITCH_STATUS_FALSE;
+	} else {
+		ret_status = SWITCH_STATUS_SUCCESS;
+		if (strcasecmp(argv[2], "max_members") == 0) {
+			int new_max = atoi(argv[3]);
+			if (new_max >= 0) {
+				stream->write_function(stream, "%d", conference->max_members);
+				conference->max_members = new_max;
+			} else {
+				ret_status = SWITCH_STATUS_FALSE;
+			}
+		} else 	if (strcasecmp(argv[2], "sound_prefix") == 0) {
+			stream->write_function(stream, "%s",conference->sound_prefix);
+			conference->sound_prefix = switch_core_strdup(conference->pool, argv[3]);
+		} else 	if (strcasecmp(argv[2], "caller_id_name") == 0) {
+			stream->write_function(stream, "%s",conference->caller_id_name);
+			conference->caller_id_name = switch_core_strdup(conference->pool, argv[3]);
+		} else 	if (strcasecmp(argv[2], "caller_id_number") == 0) {
+			stream->write_function(stream, "%s",conference->caller_id_number);
+			conference->caller_id_number = switch_core_strdup(conference->pool, argv[3]);
+		} else if (strcasecmp(argv[2], "endconf_grace_time") == 0) {
+				int new_gt = atoi(argv[3]);
+				if (new_gt >= 0) {
+					stream->write_function(stream, "%d", conference->endconf_grace_time);
+					conference->endconf_grace_time = new_gt;
+				} else {
+					ret_status = SWITCH_STATUS_FALSE;
+				}
+		} else {
+			ret_status = SWITCH_STATUS_FALSE;
+		}
+	}
+
+	return ret_status;
+}
+
 typedef enum {
 	CONF_API_COMMAND_LIST = 0,
 	CONF_API_COMMAND_ENERGY,
@@ -5189,6 +5313,10 @@ typedef enum {
 	CONF_API_COMMAND_NORECORD,
 	CONF_API_COMMAND_EXIT_SOUND,
 	CONF_API_COMMAND_ENTER_SOUND,
+	CONF_API_COMMAND_PIN,
+	CONF_API_COMMAND_NOPIN,
+	CONF_API_COMMAND_GET,
+	CONF_API_COMMAND_SET,
 } api_command_type_t;
 
 /* API Interface Function sub-commands */
@@ -5224,6 +5352,8 @@ static api_command_t conf_api_sub_commands[] = {
 	{"enter_sound", (void_fn_t) & conf_api_sub_enter_sound, CONF_API_SUB_ARGS_SPLIT, "enter_sound", "on|off|none|file <filename>"},
 	{"pin", (void_fn_t) & conf_api_sub_pin, CONF_API_SUB_ARGS_SPLIT, "pin", "<pin#>"},
 	{"nopin", (void_fn_t) & conf_api_sub_pin, CONF_API_SUB_ARGS_SPLIT, "nopin", ""},
+	{"get", (void_fn_t) & conf_api_sub_get, CONF_API_SUB_ARGS_SPLIT, "get", "<parameter-name>"},
+	{"set", (void_fn_t) & conf_api_sub_set, CONF_API_SUB_ARGS_SPLIT, "set", "<parameter-name> <value>"},
 };
 
 #define CONFFUNCAPISIZE (sizeof(conf_api_sub_commands)/sizeof(conf_api_sub_commands[0]))
@@ -6791,6 +6921,7 @@ static conference_obj_t *conference_new(char *name, conf_xml_cfg_t cfg, switch_c
 	char *auto_record = NULL;
 	char *conference_log_dir = NULL;
 	char *terminate_on_silence = NULL;
+	char *endconf_grace_time = NULL;
 	char uuid_str[SWITCH_UUID_FORMATTED_LENGTH+1];
 	switch_uuid_t uuid;
 	switch_codec_implementation_t read_impl = { 0 };
@@ -6998,6 +7129,8 @@ static conference_obj_t *conference_new(char *name, conf_xml_cfg_t cfg, switch_c
 				auto_record = val;
 			} else if (!strcasecmp(var, "terminate-on-silence") && !zstr(val)) {
 				terminate_on_silence = val;
+			} else if (!strcasecmp(var, "endconf-grace-time") && !zstr(val)) {
+				endconf_grace_time = val;
 			}
 		}
 
@@ -7222,9 +7355,12 @@ static conference_obj_t *conference_new(char *name, conf_xml_cfg_t cfg, switch_c
 	if (!zstr(auto_record)) {
 		conference->auto_record = switch_core_strdup(conference->pool, auto_record);
 	}
-        if (!zstr(terminate_on_silence)) {
-                conference->terminate_on_silence = atoi(terminate_on_silence);
-        }
+	if (!zstr(terminate_on_silence)) {
+		conference->terminate_on_silence = atoi(terminate_on_silence);
+	}
+	if (!zstr(endconf_grace_time)) {
+		conference->endconf_grace_time = atoi(endconf_grace_time);
+	}
 
 	if (!zstr(verbose_events) && switch_true(verbose_events)) {
 		conference->verbose_events = 1;
