@@ -69,8 +69,7 @@
 #define bswap_16 OSSwapInt16
 #define bswap_32 OSSwapInt32
 #define bswap_64 OSSwapInt64
-//Try this one for uClibc
-#elif defined __UCLIBC__
+#elif defined (__UCLIBC__)
 #else
 #define bswap_16(value)  \
 	((((value) & 0xff) << 8) | ((value) >> 8))
