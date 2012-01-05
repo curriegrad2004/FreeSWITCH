@@ -1548,8 +1548,8 @@ static int sofia_dialog_probe_callback(void *pArg, int argc, char **argv, char *
 
 	local_host = to_host;
 	if (proto && !strcasecmp(proto, "queue")) {
-		local_user = "queue";
-		local_user_param = switch_mprintf(";fifo=%s", to_user);
+		local_user = to_user;
+		local_user_param = switch_mprintf(";proto=%s", proto);
 		event_status = "hold";
 		if (skip_proto) {
 			buf_to_free = switch_mprintf("sip:%s", to_user);
@@ -1562,8 +1562,8 @@ static int sofia_dialog_probe_callback(void *pArg, int argc, char **argv, char *
 		remote_host = local_host;
 	}
 	else if (proto && !strcasecmp(proto, "park")) {
-		local_user = "park";
-		local_user_param = switch_mprintf(";fifo=%s", to_user);
+		local_user = to_user;
+		local_user_param = switch_mprintf(";proto=%s", proto);
 		event_status = "hold";
 		if (skip_proto) {
 			buf_to_free = switch_mprintf("sip:%s", to_user);
@@ -1576,8 +1576,8 @@ static int sofia_dialog_probe_callback(void *pArg, int argc, char **argv, char *
 		remote_host = local_host;
 	}
 	else if (proto && !strcasecmp(proto, "conf")) {
-		local_user = "conference";
-		local_user_param = switch_mprintf(";conference=%s", to_user);
+		local_user = to_user;
+		local_user_param = switch_mprintf(";proto=%s", proto);
 		if (skip_proto) { 
 			buf_to_free = switch_mprintf("sip:%s@%s", to_user, host);
 		} else {
@@ -2268,9 +2268,9 @@ static int sofia_presence_sub_callback(void *pArg, int argc, char **argv, char *
 						stream.write_function(&stream, "<target uri=\"sip:**%s@%s\"/>\n", clean_to_user, host);
 						stream.write_function(&stream, "</remote>\n");
 					} else if (!strcasecmp(proto, "queue")) {
-						stream.write_function(&stream, "<local>\n<identity display=\"queue\">sip:queue@%s;fifo=%s</identity>\n",
-											  host, !zstr(clean_to_user) ? clean_to_user : "unknown");
-						stream.write_function(&stream, "<target uri=\"sip:queue@%s\">\n", host);
+						stream.write_function(&stream, "<local>\n<identity display=\"queue\">sip:%s@%s;proto=queue</identity>\n",
+											  !zstr(clean_to_user) ? clean_to_user : "unknown", host);
+						stream.write_function(&stream, "<target uri=\"sip:%s@%s;proto=fifo\">\n", !zstr(clean_to_user) ? clean_to_user : "unknown", host);
 						stream.write_function(&stream, "<param pname=\"+sip.rendering\" pvalue=\"no\"/>\n</target>\n</local>\n");
 						stream.write_function(&stream, "<remote>\n<identity display=\"queue\">sip:%s</identity>\n", uuid);
 						if (skip_proto) {
@@ -2281,9 +2281,9 @@ static int sofia_presence_sub_callback(void *pArg, int argc, char **argv, char *
 
 						stream.write_function(&stream, "</remote>\n");
 					} else if (!strcasecmp(proto, "park")) {
-						stream.write_function(&stream, "<local>\n<identity display=\"park\">sip:park@%s;slot=%s</identity>\n",
-											  host, !zstr(clean_to_user) ? clean_to_user : "unknown");
-						stream.write_function(&stream, "<target uri=\"sip:park@%s\">\n", host);
+						stream.write_function(&stream, "<local>\n<identity display=\"park\">sip:%s@%s;proto=park</identity>\n",
+											  !zstr(clean_to_user) ? clean_to_user : "unknown", host);
+						stream.write_function(&stream, "<target uri=\"sip:%s@%s;proto=park\">\n", !zstr(clean_to_user) ? clean_to_user : "unknown", host);
 						stream.write_function(&stream, "<param pname=\"+sip.rendering\" pvalue=\"no\"/>\n</target>\n</local>\n");
 						stream.write_function(&stream, "<remote>\n<identity display=\"park\">sip:%s</identity>\n", uuid);
 						if (skip_proto) {
@@ -2293,9 +2293,10 @@ static int sofia_presence_sub_callback(void *pArg, int argc, char **argv, char *
 						}
 						stream.write_function(&stream, "</remote>\n");
 					} else if (!strcasecmp(proto, "conf")) {
-						stream.write_function(&stream, "<local>\n<identity display=\"conference\">sip:conference@%s;conference=%s</identity>\n",
-											  host, !zstr(clean_to_user) ? clean_to_user : "unknown");
-						stream.write_function(&stream, "<target uri=\"sip:conference@%s\">\n", host);
+						stream.write_function(&stream, "<local>\n<identity display=\"conference\">sip:%s@%s;proto=conference</identity>\n",
+											  !zstr(clean_to_user) ? clean_to_user : "unknown", host);
+						stream.write_function(&stream, "<target uri=\"sip:%s@%s;proto=conference\">\n", 
+											  !zstr(clean_to_user) ? clean_to_user : "unknown", host);
 						stream.write_function(&stream, "<param pname=\"+sip.rendering\" pvalue=\"yes\"/>\n</target>\n</local>\n");
 						stream.write_function(&stream, "<remote>\n<identity display=\"conference\">sip:%s@%s</identity>\n", uuid, host);
 						if (skip_proto) {
@@ -2877,25 +2878,25 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 		proto = alt_proto;
 	}
 	
-	if ((sub_state == nua_substate_active) && (switch_stristr("dialog", (const char *) event))) {
+	if ((sub_state == nua_substate_active)) {
 		
 		sstr = switch_mprintf("active;expires=%ld", exp_delta);
 		
 		sql = switch_mprintf("update sip_subscriptions "
 							 "set expires=%ld "
-							 "where call_id='%q' and event='dialog' and hostname='%q' ",
+							 "where call_id='%q'",
 							 (long) switch_epoch_time_now(NULL) + exp_delta,
-							 call_id,
-							 mod_sofia_globals.hostname);
-		
+							 call_id);
 
 		if (mod_sofia_globals.debug_presence > 0 || mod_sofia_globals.debug_sla > 0) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
-							  "re-subscribe with dialog detected, sql: %s\n", sql);
+							  "re-subscribe event %s, sql: %s\n", event, sql);
 		}
 		
 		sofia_glue_execute_sql_now(profile, &sql, SWITCH_TRUE);
 	} else {
+
+#if 0
 		if (sofia_test_pflag(profile, PFLAG_MULTIREG)) {
 			sql = switch_mprintf("delete from sip_subscriptions where call_id='%q' "
 								 "or (proto='%q' and sip_user='%q' and sip_host='%q' "
@@ -2908,6 +2909,10 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 								 "proto='%q' and sip_user='%q' and sip_host='%q' and sub_to_user='%q' and sub_to_host='%q' and event='%q' and hostname='%q'",
 								 proto, from_user, from_host, to_user, to_host, event, mod_sofia_globals.hostname);
 		}
+#endif
+
+		sql = switch_mprintf("delete from sip_subscriptions where call_id='%q'", call_id, mod_sofia_globals.hostname);
+		
 
 		switch_mutex_lock(profile->ireg_mutex);
 		switch_assert(sql != NULL);
