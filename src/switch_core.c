@@ -603,7 +603,7 @@ SWITCH_DECLARE(void) switch_core_set_globals(void)
 		GetTempPath(dwBufSize, lpPathBuffer);
 		switch_snprintf(SWITCH_GLOBAL_dirs.temp_dir, BUFSIZE, "%s", lpPathBuffer);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.temp_dir, BUFSIZE, "%s", "/tmp/");
+		switch_snprintf(SWITCH_GLOBAL_dirs.temp_dir, BUFSIZE, "%s", "/tmp");
 #endif
 #endif
 	}
@@ -1566,14 +1566,14 @@ static void switch_load_core_config(const char *file)
 				
 				if (!zstr(var) && !zstr(val)) {
 					uint32_t *p;
-					uint32_t v = (unsigned long) atol(val);
+					uint32_t v = switch_atoul(val);
 
 					if (!strcasecmp(var, "G723") || !strcasecmp(var, "iLBC")) {
 						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Error adding %s, defaults cannot be changed\n", var);
 						continue;
 					}
 					
-					if (v < 0) {
+					if (v == 0) {
 						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Error adding %s, invalid ptime\n", var);
 						continue;
 					}

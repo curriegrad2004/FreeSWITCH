@@ -2517,17 +2517,18 @@ static void voicemail_check_main(switch_core_session_t *session, vm_profile_t *p
 		status = switch_ivr_phrase_macro(session, VM_GOODBYE_MACRO, NULL, NULL, NULL);
 	}
 
-	if (x_user) {
-		switch_xml_free(x_user);
-		x_user = NULL;
-	}
-
 	if (auth_only) {
 		if (authed) {
 			switch_channel_set_variable(channel, "user_pin_authenticated", "true");
+			if (!zstr(myid)) switch_ivr_set_user(session, myid);
 		} else {
 			switch_channel_hangup(channel, SWITCH_CAUSE_USER_CHALLENGE);
 		}
+	}
+
+	if (x_user) {
+		switch_xml_free(x_user);
+		x_user = NULL;
 	}
 
 }
@@ -3450,7 +3451,20 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 							switch_core_session_get_pool(session), caller_id_name, caller_id_number, NULL, SWITCH_FALSE,
 							session ? switch_core_session_get_uuid(session) : NULL, session);
 		switch_event_destroy(&vars);
-		if (status != SWITCH_STATUS_SUCCESS) {
+		if (status == SWITCH_STATUS_SUCCESS) {
+			switch_core_time_duration_t duration;
+			char duration_str[80];
+			switch_time_t l_duration = switch_time_make(message_len, 0);
+
+			switch_core_measure_time(l_duration, &duration);
+			duration.day += duration.yr * 365;
+			duration.hr += duration.day * 24;
+
+			switch_snprintf(duration_str, sizeof(duration_str), "%.2u:%.2u:%.2u", duration.hr, duration.min, duration.sec);
+
+			switch_channel_set_variable(channel, "voicemail_message_len", duration_str);
+
+		} else {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to deliver message\n");
 			TRY_CODE(switch_ivr_phrase_macro(session, VM_ACK_MACRO, "deleted", NULL, NULL));
 		}

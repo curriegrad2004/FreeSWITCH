@@ -1570,7 +1570,7 @@ void watchdog_triggered_abort(void) {
 void *SWITCH_THREAD_FUNC sofia_profile_worker_thread_run(switch_thread_t *thread, void *obj)
 {
 	sofia_profile_t *profile = (sofia_profile_t *) obj;
-	uint32_t ireg_loops = IREG_SECONDS;					/* Number of loop iterations done when we haven't checked for registrations */
+	uint32_t ireg_loops = profile->ireg_seconds;					/* Number of loop iterations done when we haven't checked for registrations */
 	uint32_t gateway_loops = GATEWAY_SECONDS;			/* Number of loop iterations done when we haven't checked for gateways */
 	void *pop = NULL;					/* queue_pop placeholder */
 	switch_size_t sql_len = 1024 * 32;	/* length of sqlbuf */
@@ -2921,12 +2921,6 @@ switch_status_t reconfig_sofia(sofia_profile_t *profile)
 						} else {
 							sofia_clear_pflag(profile, PFLAG_PASS_CALLEE_ID);
 						}
-					} else if (!strcasecmp(var, "delete-subs-on-register")) {
-						if (switch_true(val)) {
-							sofia_set_pflag(profile, PFLAG_DEL_SUBS_ON_REG);
-						} else {
-							sofia_clear_pflag(profile, PFLAG_DEL_SUBS_ON_REG);
-						}
 					} else if (!strcasecmp(var, "watchdog-enabled")) {
 						profile->watchdog_enabled = switch_true(val);
 					} else if (!strcasecmp(var, "watchdog-step-timeout")) {
@@ -2978,6 +2972,11 @@ switch_status_t reconfig_sofia(sofia_profile_t *profile)
 						sofia_glue_parse_rtp_bugs(&profile->auto_rtp_bugs, val);
 					} else if (!strcasecmp(var, "manual-rtp-bugs")) {
 						sofia_glue_parse_rtp_bugs(&profile->manual_rtp_bugs, val);
+					} else if (!strcasecmp(var, "registration-thread-frequency")) {
+						profile->ireg_seconds = atoi(val);
+						if (profile->ireg_seconds < 0) {
+							profile->ireg_seconds = IREG_SECONDS;
+						}
 					} else if (!strcasecmp(var, "user-agent-string")) {
 						profile->user_agent = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "auto-restart")) {
@@ -3699,6 +3698,8 @@ switch_status_t config_sofia(int reload, char *profile_name)
 				sofia_set_pflag(profile, PFLAG_CID_IN_1XX);
 				profile->ndlb |= PFLAG_NDLB_ALLOW_NONDUP_SDP;
 				profile->te = 101;
+				profile->ireg_seconds = IREG_SECONDS;
+
 
                                 profile->tls_verify_policy = TPTLS_VERIFY_NONE;
                                 /* lib default */
@@ -3738,6 +3739,11 @@ switch_status_t config_sofia(int reload, char *profile_name)
                                                 } else {
                                                         sofia_clear_pflag(profile, PFLAG_FORWARD_MWI_NOTIFY);
                                                 }
+					} else if (!strcasecmp(var, "registration-thread-frequency")) {
+						profile->ireg_seconds = atoi(val);
+						if (profile->ireg_seconds < 0) {
+							profile->ireg_seconds = IREG_SECONDS;
+						}
 					} else if (!strcasecmp(var, "user-agent-string")) {
 						profile->user_agent = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "auto-restart")) {
@@ -3778,12 +3784,6 @@ switch_status_t config_sofia(int reload, char *profile_name)
 							sofia_set_pflag(profile, PFLAG_IN_DIALOG_CHAT);
 						} else {
 							sofia_clear_pflag(profile, PFLAG_IN_DIALOG_CHAT);
-						}
-					} else if (!strcasecmp(var, "delete-subs-on-register")) {
-						if (switch_true(val)) {
-							sofia_set_pflag(profile, PFLAG_DEL_SUBS_ON_REG);
-						} else {
-							sofia_clear_pflag(profile, PFLAG_DEL_SUBS_ON_REG);
 						}
 					} else if (!strcasecmp(var, "t38-passthru")) {
 						if (switch_true(val)) {

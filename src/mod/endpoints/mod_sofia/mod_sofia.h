@@ -247,7 +247,7 @@ typedef enum {
 	PFLAG_T38_PASSTHRU,
 	PFLAG_CID_IN_1XX,
 	PFLAG_IN_DIALOG_CHAT,
-	PFLAG_DEL_SUBS_ON_REG,
+	PFLAG_DEL_SUBS_ON_REG_REUSE,
 	PFLAG_IGNORE_183NOSDP,
 	PFLAG_PRESENCE_PROBE_ON_REGISTER,
 	PFLAG_PRESENCE_ON_REGISTER,
@@ -647,6 +647,7 @@ struct sofia_profile {
 	su_strlst_t *tls_verify_in_subjects;
 	uint32_t sip_force_expires;
 	uint32_t sip_expires_max_deviation;
+	int ireg_seconds;
 };
 
 struct private_object {
