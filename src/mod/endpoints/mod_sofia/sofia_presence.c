@@ -651,7 +651,7 @@ static void do_normal_probe(sofia_profile_t *profile, switch_event_t *event)
 							 "left join sip_dialogs on "
 							 "sip_dialogs.presence_id = sip_registrations.sip_user %q '@' %q sip_registrations.sub_host "
 							 "or (sip_dialogs.sip_from_user = sip_registrations.sip_user "
-							 "and sip_dialogs.sip_from_host = sip_registrations.sub_host) "
+							 "and sip_dialogs.sip_from_host = sip_registrations.sip_host) "
  
 							 "left join sip_presence on "
 							 "(sip_registrations.sip_user=sip_presence.sip_user and sip_registrations.orig_server_host=sip_presence.sip_host and "
@@ -766,7 +766,7 @@ static void do_dialog_probe(sofia_profile_t *profile, switch_event_t *event)
 							 "left join sip_registrations on "
 							 "(sip_dialogs.sip_from_user = sip_registrations.sip_user "
 							 "and (sip_dialogs.sip_from_host = sip_registrations.orig_server_host or "
-							 "sip_dialogs.sip_from_host = sip_registrations.sub_host) ) "
+							 "sip_dialogs.sip_from_host = sip_registrations.sip_host) ) "
 							 "where sip_dialogs.presence_id='%q@%q' or (sip_registrations.sip_user='%q' and "
 							 "(sip_registrations.orig_server_host='%q' or sip_registrations.sub_host='%q' "
 							 "or sip_registrations.presence_hosts like '%%%q%%'))",
@@ -812,7 +812,7 @@ static void do_dialog_probe(sofia_profile_t *profile, switch_event_t *event)
 
 		sql = switch_mprintf("update sip_subscriptions set version=version+1 "
 							 "where expires > -1 and hostname='%q' "
-							 "and sub_to_user='%q' and sub_to_host='%q' " "and (event!='fuck-dialog') and "
+							 "and sub_to_user='%q' and sub_to_host='%q' " "and (event!='dialog') and "
 							 "call_id='%q'",
 							 mod_sofia_globals.hostname, probe_euser, probe_host, sub_call_id);
 
@@ -1115,7 +1115,7 @@ static void actual_sofia_presence_event_handler(switch_event_t *event)
 					sofia_glue_execute_sql_callback(profile, profile->ireg_mutex, sql, sofia_presence_sub_callback, &helper);
 					switch_safe_free(sql);
 					
-					sql = switch_mprintf("update sip_subscriptions set version=version+1 where event!='fuck-dialog' and sub_to_user='%q' "
+					sql = switch_mprintf("update sip_subscriptions set version=version+1 where event!='dialog' and sub_to_user='%q' "
 										 "and (sub_to_host='%q' or presence_hosts like '%%%q%%') "
 										 "and (profile_name = '%q' or presence_hosts != sub_to_host)",
 										 euser, host, host, profile->name);
