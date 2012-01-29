@@ -354,8 +354,8 @@ void sofia_reg_check_gateway(sofia_profile_t *profile, time_t now)
 			nua_options(nh,
 						TAG_IF(gateway_ptr->register_sticky_proxy, NUTAG_PROXY(gateway_ptr->register_sticky_proxy)),
 						TAG_IF(user_via, SIPTAG_VIA_STR(user_via)),
-						SIPTAG_TO_STR(gateway_ptr->register_from),
-						SIPTAG_CONTACT_STR(gateway_ptr->register_contact), SIPTAG_FROM_STR(gateway_ptr->register_from), TAG_END());
+						SIPTAG_TO_STR(gateway_ptr->options_uri), SIPTAG_FROM_STR(profile->url),
+						SIPTAG_CONTACT_STR(gateway_ptr->register_contact), TAG_END());
 
 			switch_safe_free(user_via);
 			user_via = NULL;
@@ -1090,10 +1090,10 @@ uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_hand
 		switch_goto_int(r, 1, end);
 	}
 
-	if (!reg_host) {
+	if (zstr(reg_host)) {
 		reg_host = to_host;
 	}
-	if (!sub_host) {
+	if (zstr(sub_host)) {
 		sub_host = to_host;
 	}
 
@@ -1521,12 +1521,17 @@ uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_hand
 					"user_agent,server_user,server_host,profile_name,hostname,network_ip,network_port,sip_username,sip_realm,"
 					"mwi_user,mwi_host, orig_server_host, orig_hostname, sub_host) "
 					"values ('%q','%q', '%q','%q','%q','%q', '%q', %ld, '%q', '%q', '%q', '%q', '%q', '%q', '%q','%q','%q','%q','%q','%q','%q','%q')", 
-					call_id, to_user, reg_host, profile->presence_hosts ? profile->presence_hosts : reg_host, 
+					call_id, to_user, reg_host, profile->presence_hosts ? profile->presence_hosts : "", 
 					contact_str, reg_desc, rpid, (long) switch_epoch_time_now(NULL) + (long) exptime + 60, 
 					agent, from_user, guess_ip4, profile->name, mod_sofia_globals.hostname, network_ip, network_port_c, username, realm, 
 								 mwi_user, mwi_host, guess_ip4, mod_sofia_globals.hostname, sub_host);
 		} else {
-			sql = switch_mprintf("update sip_registrations set expires = %ld where sip_user='%q' and sip_host='%q' and contact='%q'", (long) switch_epoch_time_now(NULL) + (long) exptime + 60, to_user, reg_host, contact_str);
+			sql = switch_mprintf("update sip_registrations set "
+								 "sub_host='%q', network_ip='%q',network_port='%q',"
+								 "expires = %ld where sip_user='%q' and sip_host='%q' and contact='%q'", 
+								 sub_host, network_ip, network_port_c,
+								 (long) switch_epoch_time_now(NULL) + (long) exptime + 60, 
+								 to_user, reg_host, contact_str);
 		}				 
 
 		if (sql) {
@@ -1548,7 +1553,7 @@ uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_hand
 			switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "profile-name", profile->name);
 			switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "from-user", to_user);
 			switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "from-host", reg_host);
-			switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "presence-hosts", profile->presence_hosts ? profile->presence_hosts : reg_host);
+			switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "presence-hosts", profile->presence_hosts ? profile->presence_hosts : "n/a");
 			switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "contact", contact_str);
 			switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "call-id", call_id);
 			switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "rpid", rpid);
@@ -1571,38 +1576,6 @@ uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_hand
 							  "Register:\nFrom:    [%s@%s]\nContact: [%s]\nExpires: [%ld]\n", to_user, reg_host, contact_str, (long) exptime);
 		}
 
-#if 0
-		if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", SOFIA_CHAT_PROTO);
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", rpid);
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", profile->url);
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "user-agent",
-										   (sip && sip->sip_user_agent) ? sip->sip_user_agent->g_string : "unknown");
-			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", to_user, sub_host);
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "status", "Registered");
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
-			switch_event_fire(&event);
-		}
-
-
-		if (sofia_test_pflag(profile, PFLAG_MESSAGE_QUERY_ON_REGISTER) ||
-			(reg_count == 1 && sofia_test_pflag(profile, PFLAG_MESSAGE_QUERY_ON_FIRST_REGISTER))) {
-
-			if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_PROBE) == SWITCH_STATUS_SUCCESS) {
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", "sip");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", profile->url);
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", rpid);
-				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", to_user, sub_host);
-				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "to", "%s@%s", to_user, sub_host);
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "status", "Registered");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_subtype", "probe");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
-				switch_event_fire(&event);
-			}
-		}
-#endif
-
-
 	} else {
 		int send = 1;
 
@@ -1624,18 +1597,7 @@ uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_hand
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
 			switch_event_fire(&event);
 		}
-#if 0
-		if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_OUT) == SWITCH_STATUS_SUCCESS) {
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", "sip");
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", profile->url);
-			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s+%s@%s", SOFIA_CHAT_PROTO, to_user, sub_host);
-
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "status", "unavailable");
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", rpid);
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
-			switch_event_fire(&event);
-		}
-#endif
+		
 
 		if (multi_reg) {
 			char *icontact, *p;
@@ -2075,7 +2037,7 @@ void sofia_reg_handle_sip_r_challenge(int status,
 		if (!var_gateway && realm) {
 			char rb[512] = "";
 			char *p = (char *) realm;
-			while ((*p == '"')) {
+			while (*p == '"') {
 				p++;
 			}
 			switch_set_string(rb, p);

@@ -989,6 +989,8 @@ typedef enum {
 #define VM_ENTER_ID_MACRO "voicemail_enter_id"
 #define VM_ENTER_PASS_MACRO "voicemail_enter_pass"
 #define VM_FAIL_AUTH_MACRO "voicemail_fail_auth"
+#define VM_CHANGE_PASS_SUCCESS_MACRO "voicemail_change_pass_success"
+#define VM_CHANGE_PASS_FAIL_MACRO "voicemail_change_pass_fail"
 #define VM_ABORT_MACRO "voicemail_abort"
 #define VM_HELLO_MACRO "voicemail_hello"
 #define VM_GOODBYE_MACRO "voicemail_goodbye"
@@ -2194,6 +2196,8 @@ static void voicemail_check_main(switch_core_session_t *session, vm_profile_t *p
 						}
 						
 						if (fail) {
+							/* add feedback for user - let him/her know that the password they tried to change to is not allowed */
+							/* change the following macro to VM_CHANGE_PASS_FAIL_MACRO when new prompts have been recorded */
 							switch_ivr_phrase_macro(session, VM_FAIL_AUTH_MACRO, NULL, NULL, NULL);
 						} else {
 							sql = switch_mprintf("update voicemail_prefs set password='%s' where username='%s' and domain='%s'", buf, myid, domain_name);
@@ -2201,6 +2205,8 @@ static void voicemail_check_main(switch_core_session_t *session, vm_profile_t *p
 							switch_safe_free(file_path);
 							switch_safe_free(sql);
 							ok = 1;
+							/* add feedback for user - let him/her know that password change was successful */
+							switch_ivr_phrase_macro(session, VM_CHANGE_PASS_SUCCESS_MACRO, NULL, NULL, NULL);
 						}
 					
 						switch_event_destroy(&params);
@@ -3425,7 +3431,7 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 
 	status = create_file(session, profile, record_macro, file_path, &message_len, SWITCH_TRUE, key_buf, buf);
 
-	if ((status == SWITCH_STATUS_NOTFOUND)) {
+	if (status == SWITCH_STATUS_NOTFOUND) {
 		goto end;
 	}
 
