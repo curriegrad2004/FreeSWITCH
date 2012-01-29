@@ -92,7 +92,7 @@ void sofia_handle_sip_r_notify(switch_core_session_t *session, int status,
 	if (status >= 300 && sip && sip->sip_call_id && (!sofia_private || !sofia_private->is_call)) {
 		char *sql;
 
-		sql = switch_mprintf("update sip_subscriptions set expires=%ld where call_id='%q'", (long) switch_epoch_time_now(NULL), sip->sip_call_id->i_id);
+		sql = switch_mprintf("delete from sip_subscriptions where call_id='%q'", sip->sip_call_id->i_id);
 		switch_assert(sql != NULL);
 		sofia_glue_execute_sql(profile, &sql, SWITCH_TRUE);
 		nua_handle_destroy(nh);
@@ -2028,10 +2028,6 @@ void *SWITCH_THREAD_FUNC sofia_profile_thread_run(switch_thread_t *thread, void 
 
 	sofia_glue_add_profile(profile->name, profile);
 
-	if (profile->pres_type) {
-		sofia_presence_establish_presence(profile);
-	}
-	
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Starting thread for %s\n", profile->name);
 
 	profile->started = switch_epoch_time_now(NULL);
@@ -2496,16 +2492,6 @@ static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag, 
 				str_rfc_5626 = switch_core_sprintf(gateway->pool, ";reg-id=%s;+sip.instance=\"<urn:uuid:%s>\"",reg_id,str_guid);
 			}
 
-			if (ping_freq) {
-				if (ping_freq >= 5) {
-					gateway->ping_freq = ping_freq;
-					gateway->ping_max = ping_max;
-					gateway->ping_min = ping_min;
-					gateway->ping = switch_epoch_time_now(NULL) + ping_freq;
-				} else {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "ERROR: invalid ping!\n");
-				}
-			}
 
 			if ((gw_subs_tag = switch_xml_child(gateway_tag, "subscriptions"))) {
 				parse_gateway_subscriptions(profile, gateway, gw_subs_tag);
@@ -2528,6 +2514,14 @@ static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag, 
 				if (zstr(password)) {
 					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "ERROR: password param is REQUIRED!\n");
 					goto skip;
+				}
+			} else {
+				if (zstr(username)) {
+					username = "FreeSWITCH";
+				}
+
+				if (zstr(password)) {
+					password = "";
 				}
 			}
 
@@ -2618,6 +2612,19 @@ static void parse_gateways(sofia_profile_t *profile, switch_xml_t gateways_tag, 
 			gateway->register_from = switch_core_sprintf(gateway->pool, "<sip:%s@%s;transport=%s>",
 														 from_user, !zstr(from_domain) ? from_domain : proxy, register_transport);
 
+
+			if (ping_freq) {
+				if (ping_freq >= 5) {
+					gateway->ping_freq = ping_freq;
+					gateway->ping_max = ping_max;
+					gateway->ping_min = ping_min;
+					gateway->ping = switch_epoch_time_now(NULL) + ping_freq;
+					gateway->options_uri = switch_core_sprintf(gateway->pool, "<sip:%s;transport=%s>",
+															   !zstr(from_domain) ? from_domain : proxy, register_transport);			
+				} else {
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "ERROR: invalid ping!\n");
+				}
+			}
 
 			if (contact_host) {
 				if (!strcmp(contact_host, "sip-ip")) {
@@ -3455,14 +3462,14 @@ switch_status_t reconfig_sofia(sofia_profile_t *profile)
                                                         sofia_clear_pflag(profile, PFLAG_OPTIONS_RESPOND_503_ON_BUSY);
                                                 }
 					} else if (!strcasecmp(var, "sip-force-expires")) {
-						uint32_t sip_force_expires = atoi(val);
+						int32_t sip_force_expires = atoi(val);
 						if (sip_force_expires >= 0) {
 							profile->sip_force_expires = sip_force_expires;
 						} else {
 							profile->sip_force_expires = 0;
 						}
 					} else if (!strcasecmp(var, "sip-expires-max-deviation")) {
-						uint32_t sip_expires_max_deviation = atoi(val);
+						int32_t sip_expires_max_deviation = atoi(val);
 						if (sip_expires_max_deviation >= 0) {
 							profile->sip_expires_max_deviation = sip_expires_max_deviation;
 						} else {
@@ -3709,7 +3716,7 @@ switch_status_t config_sofia(int reload, char *profile_name)
 				profile->contact_user = SOFIA_DEFAULT_CONTACT_USER;
 				sofia_set_pflag(profile, PFLAG_PASS_CALLEE_ID);
 				sofia_set_pflag(profile, PFLAG_MESSAGE_QUERY_ON_FIRST_REGISTER);
-				sofia_set_pflag(profile, PFLAG_PRESENCE_ON_FIRST_REGISTER);
+				//sofia_set_pflag(profile, PFLAG_PRESENCE_ON_FIRST_REGISTER);		
 				sofia_set_pflag(profile, PFLAG_SQL_IN_TRANS);
 
 				profile->shutdown_type = "false";
@@ -4520,14 +4527,14 @@ switch_status_t config_sofia(int reload, char *profile_name)
                                                         sofia_clear_pflag(profile, PFLAG_OPTIONS_RESPOND_503_ON_BUSY);
                                                 }
 					} else if (!strcasecmp(var, "sip-force-expires")) {
-						uint32_t sip_force_expires = atoi(val);
+						int32_t sip_force_expires = atoi(val);
 						if (sip_force_expires >= 0) {
 							profile->sip_force_expires = sip_force_expires;
 						} else {
 							profile->sip_force_expires = 0;
 						}
 					} else if (!strcasecmp(var, "sip-expires-max-deviation")) {
-						uint32_t sip_expires_max_deviation = atoi(val);
+						int32_t sip_expires_max_deviation = atoi(val);
 						if (sip_expires_max_deviation >= 0) {
 							profile->sip_expires_max_deviation = sip_expires_max_deviation;
 						} else {
@@ -5825,7 +5832,7 @@ static void sofia_handle_sip_i_state(switch_core_session_t *session, int status,
 						sofia_set_flag_locked(tech_pvt, TFLAG_3PCC);
 						//sofia_glue_tech_choose_port(tech_pvt, 0);
 						//sofia_glue_set_local_sdp(tech_pvt, NULL, 0, NULL, 0);
-						switch_channel_set_flag(channel, TFLAG_LATE_NEGOTIATION);
+						sofia_set_flag(tech_pvt, TFLAG_LATE_NEGOTIATION);
 						//Moves into CS_INIT so call moves forward into the dialplan
 						switch_channel_set_state(channel, CS_INIT);
 					} else {

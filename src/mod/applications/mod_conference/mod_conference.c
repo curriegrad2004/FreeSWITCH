@@ -1101,6 +1101,14 @@ static switch_status_t conference_del_member(conference_obj_t *conference, confe
 
 	if (member == member->conference->floor_holder) {
 		member->conference->floor_holder = NULL;
+
+		if (test_eflag(conference, EFLAG_FLOOR_CHANGE)) {
+			switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CONF_EVENT_MAINT);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Action", "floor-change");
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Old-ID", "%d", member->id);
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "New-ID", "none");
+			switch_event_fire(&event);
+		}
 	}
 
 	member->conference = NULL;
@@ -1220,7 +1228,6 @@ static void *SWITCH_THREAD_FUNC conference_video_thread_run(switch_thread_t *thr
 	switch_status_t status;
 	int has_vid = 1, want_refresh = 0;
 	int yield = 0;
-	uint32_t last_member = 0;
 	switch_core_session_t *session;
 	switch_core_session_message_t msg = { 0 };
 
@@ -1252,41 +1259,19 @@ static void *SWITCH_THREAD_FUNC conference_video_thread_run(switch_thread_t *thr
 		session = conference->floor_holder->session;
 		switch_core_session_read_lock(session);
 		switch_mutex_unlock(conference->mutex);
-		status = switch_core_session_read_video_frame(session, &vid_frame, SWITCH_IO_FLAG_NONE, 0);
+		if (!switch_channel_ready(switch_core_session_get_channel(session))) {
+			status = SWITCH_STATUS_FALSE;
+		} else {
+			status = switch_core_session_read_video_frame(session, &vid_frame, SWITCH_IO_FLAG_NONE, 0);
+		}
 		switch_mutex_lock(conference->mutex);
 		switch_core_session_rwunlock(session);
 
 		if (!SWITCH_READ_ACCEPTABLE(status)) {
-			conference->floor_holder = NULL;
+			yield = 100000;
 			goto do_continue;
 		}
 
-		if (conference->floor_holder->id != last_member) {
-			int iframe = 0;
-
-
-			if (vid_frame->codec->implementation->ianacode == 34) {	/* h.263 */
-				//iframe = (*((int16_t *) vid_frame->data) >> 12 == 6);
-				iframe = 1;
-			} else if (vid_frame->codec->implementation->ianacode == 115) {	/* h.263-1998 */
-				int y = *((int8_t *) vid_frame->data + 2) & 0xfe;
-				iframe = (y == 0x80 || y == 0x82);
-			} else if (vid_frame->codec->implementation->ianacode == 99) {	/* h.264 */
-				uint8_t * hdr = vid_frame->data;
-                uint8_t fragment_type = hdr[0] & 0x1f;
-                uint8_t nal_type = hdr[1] & 0x1f;
-                uint8_t start_bit = hdr[1] & 0x80;
-                iframe = (((fragment_type == 28 || fragment_type == 29) && nal_type == 5 && start_bit == 128) || fragment_type == 5);
-			} else {			/* we need more defs */
-				iframe = 1;
-			}
-
-			if (!iframe) {
-				goto do_continue;
-			}
-		}
-
-		last_member = conference->floor_holder->id;
 
 		switch_mutex_unlock(conference->mutex);
 		switch_mutex_lock(conference->mutex);
@@ -1390,7 +1375,7 @@ static void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, v
 			if (switch_test_flag(imember, MFLAG_RUNNING) && imember->session) {
 				switch_channel_t *channel = switch_core_session_get_channel(imember->session);
 
-				if ((imember->score_iir > SCORE_IIR_SPEAKING_MAX && (!floor_holder || floor_holder->score_iir < SCORE_IIR_SPEAKING_MIN)) &&
+				if ((!floor_holder || (imember->score_iir > SCORE_IIR_SPEAKING_MAX && (floor_holder->score_iir < SCORE_IIR_SPEAKING_MIN))) &&
 					(!switch_test_flag(conference, CFLAG_VID_FLOOR) || switch_channel_test_flag(channel, CF_VIDEO))) {
 					floor_holder = imember;
 				}
@@ -1398,7 +1383,7 @@ static void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, v
 				if (switch_channel_ready(channel) && switch_channel_test_flag(channel, CF_VIDEO)) {
 					members_with_video++;
 					
-					if (switch_test_flag(imember, MFLAG_VIDEO_BRIDGE)) {
+					if (switch_test_flag(conference, CFLAG_VIDEO_BRIDGE) && switch_test_flag(imember, MFLAG_VIDEO_BRIDGE)) {
 						if (!video_bridge_members[0]) {
 							video_bridge_members[0] = imember;
 						} else {
@@ -1423,7 +1408,7 @@ static void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, v
 			}
 			switch_mutex_unlock(imember->audio_in_mutex);
 		}
-
+		
 
 
 		if (floor_holder != conference->floor_holder) {
