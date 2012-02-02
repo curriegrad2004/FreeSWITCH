@@ -461,8 +461,8 @@ static void actual_sofia_presence_mwi_event_handler(switch_event_t *event)
 			char buf[512] = "";
 			switch_console_callback_match_t *matches;
 
-			sql = switch_mprintf("select profile_name from sip_registrations where hostname='%q' and profile_name='%q' and (sip_host='%s' or mwi_host='%s')", 
-								 mod_sofia_globals.hostname, profile->name, host, host);
+			sql = switch_mprintf("select profile_name from sip_registrations where hostname='%q' and (sip_host='%s' or mwi_host='%s')", 
+								 mod_sofia_globals.hostname, host, host);
 
 			if (list_profiles_full(NULL, NULL, &matches, SWITCH_FALSE) == SWITCH_STATUS_SUCCESS) {
 				switch_console_callback_match_node_t *m;
@@ -481,7 +481,7 @@ static void actual_sofia_presence_mwi_event_handler(switch_event_t *event)
 				switch_console_free_matches(&matches);
 			}
 
-			
+			switch_safe_free(sql);
 
 			if (!(profile = sofia_glue_find_profile(buf))) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot find profile %s\n", switch_str_nil(host));
@@ -571,13 +571,15 @@ static int sofia_presence_dialog_callback(void *pArg, int argc, char **argv, cha
 	struct dialog_helper *helper = (struct dialog_helper *) pArg;
 
 	if (argc == 3) {
-		switch_set_string(helper->status, argv[0]);
-		switch_set_string(helper->rpid, argv[1]);
-		switch_set_string(helper->presence_id, argv[2]);
+		if (!helper->hits) {
+			switch_set_string(helper->status, argv[0]);
+			switch_set_string(helper->rpid, argv[1]);
+			switch_set_string(helper->presence_id, argv[2]);
+		}
 		helper->hits++;
 	}
 
-	return -1;
+	return 0;
 }
 
 
@@ -856,6 +858,7 @@ static void actual_sofia_presence_event_handler(switch_event_t *event)
 	char *call_info_state = switch_event_get_header(event, "presence-call-info-state");
 	switch_console_callback_match_t *matches;
 	struct presence_helper helper = { 0 };			
+	int hup = 0;
 
 	if (!mod_sofia_globals.running) {
 		return;
@@ -877,6 +880,7 @@ static void actual_sofia_presence_event_handler(switch_event_t *event)
 
 	if (status && switch_stristr("CS_HANGUP", status)) {
 		status = "Available";
+		hup = 1;
 	}
 
 	if (rpid) {
@@ -1090,6 +1094,11 @@ static void actual_sofia_presence_event_handler(switch_event_t *event)
 									 mod_sofia_globals.hostname, profile->name, euser, host, euser, host);
 				sofia_glue_execute_sql_callback(profile, profile->ireg_mutex, sql, sofia_presence_dialog_callback, &dh);
 				switch_safe_free(sql);
+
+				
+				if (hup && dh.hits > 0) {
+					goto done;
+				}
 
 
 				if (zstr(call_id) && (dh.hits && presence_source && (!strcasecmp(presence_source, "register") || switch_stristr("register", status)))) {
