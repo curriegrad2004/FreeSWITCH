@@ -354,8 +354,9 @@ void sofia_reg_check_gateway(sofia_profile_t *profile, time_t now)
 			nua_options(nh,
 						TAG_IF(gateway_ptr->register_sticky_proxy, NUTAG_PROXY(gateway_ptr->register_sticky_proxy)),
 						TAG_IF(user_via, SIPTAG_VIA_STR(user_via)),
-						SIPTAG_TO_STR(gateway_ptr->options_uri), SIPTAG_FROM_STR(profile->url),
-						SIPTAG_CONTACT_STR(gateway_ptr->register_contact), TAG_END());
+						SIPTAG_TO_STR(gateway_ptr->options_to_uri), SIPTAG_FROM_STR(gateway_ptr->options_from_uri),
+						TAG_IF(gateway_ptr->options_user_agent, SIPTAG_USER_AGENT_STR(gateway_ptr->options_user_agent)),
+						TAG_END());
 
 			switch_safe_free(user_via);
 			user_via = NULL;
@@ -1650,7 +1651,7 @@ uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_hand
 					(reg_count == 1 && sofia_test_pflag(profile, PFLAG_MESSAGE_QUERY_ON_FIRST_REGISTER))) {
 					if (switch_event_create(&s_mwi_event, SWITCH_EVENT_MESSAGE_QUERY) == SWITCH_STATUS_SUCCESS) {
 						switch_event_add_header(s_mwi_event, SWITCH_STACK_BOTTOM, "Message-Account", "sip:%s@%s", mwi_user, mwi_host);
-						switch_event_add_header_string(s_mwi_event, SWITCH_STACK_BOTTOM, "VM-Sofia-Pofile", profile->name);
+						switch_event_add_header_string(s_mwi_event, SWITCH_STACK_BOTTOM, "VM-Sofia-Profile", profile->name);
 						switch_event_add_header_string(s_mwi_event, SWITCH_STACK_BOTTOM, "VM-Call-ID", call_id);
 					}
 				}

@@ -262,6 +262,7 @@ typedef enum {
 	PFLAG_SHUTDOWN,
 	PFLAG_PRESENCE_MAP,
 	PFLAG_OPTIONS_RESPOND_503_ON_BUSY,
+	PFLAG_PRESENCE_DISABLE_EARLY,
 	/* No new flags below this line */
 	PFLAG_MAX
 } PFLAGS;
@@ -454,7 +455,9 @@ struct sofia_gateway {
 	char *auth_username;
 	char *register_password;
 	char *register_from;
-	char *options_uri;
+	char *options_from_uri;
+	char *options_to_uri;
+	char *options_user_agent;
 	char *register_contact;
 	char *extension;
 	char *real_extension;
@@ -1114,6 +1117,7 @@ switch_status_t sofia_glue_send_notify(sofia_profile_t *profile, const char *use
 									   const char *body, const char *o_contact, const char *network_ip);
 char *sofia_glue_get_extra_headers(switch_channel_t *channel, const char *prefix);
 void sofia_glue_set_extra_headers(switch_core_session_t *session, sip_t const *sip, const char *prefix);
+char *sofia_glue_get_extra_headers_from_event(switch_event_t *event, const char *prefix);
 void sofia_info_send_sipfrag(switch_core_session_t *aleg, switch_core_session_t *bleg);
 void sofia_update_callee_id(switch_core_session_t *session, sofia_profile_t *profile, sip_t const *sip, switch_bool_t send);
 void sofia_send_callee_id(switch_core_session_t *session, const char *name, const char *number);
