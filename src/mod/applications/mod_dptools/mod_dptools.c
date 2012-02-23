@@ -2902,6 +2902,12 @@ SWITCH_STANDARD_APP(audio_bridge_function)
 										v_campon_fallback_exten,
 										switch_channel_get_variable(caller_channel, "campon_fallback_dialplan"),
 										switch_channel_get_variable(caller_channel, "campon_fallback_context"));
+
+			if (peer_session) {
+				switch_channel_hangup(switch_core_session_get_channel(peer_session), SWITCH_CAUSE_ORIGINATOR_CANCEL);
+				switch_core_session_rwunlock(peer_session);
+			}
+
 			return;
 		}
 
@@ -3038,6 +3044,11 @@ SWITCH_STANDARD_APP(audio_bridge_function)
 	} else {
 
 		if (switch_channel_test_flag(caller_channel, CF_PROXY_MODE)) {
+			switch_channel_t *peer_channel = switch_core_session_get_channel(peer_session);
+			if (switch_true(switch_channel_get_variable(caller_channel, SWITCH_BYPASS_MEDIA_AFTER_BRIDGE_VARIABLE)) ||
+				switch_true(switch_channel_get_variable(peer_channel, SWITCH_BYPASS_MEDIA_AFTER_BRIDGE_VARIABLE))) {
+				switch_channel_set_flag(caller_channel, CF_BYPASS_MEDIA_AFTER_BRIDGE);
+			}
 			switch_ivr_signal_bridge(session, peer_session);
 		} else {
 			switch_channel_t *channel = switch_core_session_get_channel(session);
@@ -3313,6 +3324,9 @@ static switch_call_cause_t user_outgoing_channel(switch_core_session_t *session,
 	if (var_event) {
 		switch_event_add_header_string(var_event, SWITCH_STACK_BOTTOM, "dialed_user", user);
 		switch_event_add_header_string(var_event, SWITCH_STACK_BOTTOM, "dialed_domain", domain);
+		if (!strstr(dest, "presence_id=")) {
+			switch_event_add_header(var_event, SWITCH_STACK_BOTTOM, "presence_id", "%s@%s", user, domain);
+		}
 	}
 
 	if (!dest) {
