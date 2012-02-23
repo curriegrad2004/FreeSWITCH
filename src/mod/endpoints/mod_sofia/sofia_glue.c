@@ -599,7 +599,7 @@ void sofia_glue_set_local_sdp(private_object_t *tech_pvt, const char *ip, switch
 						bp = (buf + strlen(buf));
 
 						/* asterisk can't handle AVP and SAVP in sep streams, way to blow off the spec....*/
-						if (switch_true(switch_channel_get_variable(tech_pvt->channel, "sdp_secure_savp_only"))) {
+						if (switch_true(switch_channel_get_variable(tech_pvt->channel, "sdp_secure_savp_only")) || switch_true(switch_channel_get_variable(tech_pvt->channel, "ykm_asterisk_true"))) {
 							both = 0;
 						}
 					}
