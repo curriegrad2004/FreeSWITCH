@@ -565,13 +565,22 @@ void sofia_glue_set_local_sdp(private_object_t *tech_pvt, const char *ip, switch
 		
 		if (mult && switch_false(mult)) {
 			char *bp = buf;
-			
+			int both = 1;
+
 			if ((!zstr(tech_pvt->local_crypto_key) && sofia_test_flag(tech_pvt, TFLAG_SECURE))) {
 				generate_m(tech_pvt, buf, sizeof(buf), port, 0, append_audio, sr, use_cng, cng_type, map, verbose_sdp, 1);
 				bp = (buf + strlen(buf));
+
+				/* asterisk can't handle AVP and SAVP in sep streams, way to blow off the spec....*/
+				if (switch_true(switch_channel_get_variable(tech_pvt->channel, "sdp_secure_savp_only"))) {
+					both = 0;
+				}
+
 			}
 
-			generate_m(tech_pvt, bp, sizeof(buf) - strlen(buf), port, 0, append_audio, sr, use_cng, cng_type, map, verbose_sdp, 0);
+			if (both) {
+				generate_m(tech_pvt, bp, sizeof(buf) - strlen(buf), port, 0, append_audio, sr, use_cng, cng_type, map, verbose_sdp, 0);
+			}
 
 		} else {
 
@@ -778,6 +787,11 @@ void sofia_glue_tech_prepare_codecs(private_object_t *tech_pvt)
 	switch_assert(tech_pvt->session != NULL);
 
 	if ((abs = switch_channel_get_variable(tech_pvt->channel, "absolute_codec_string"))) {
+		/* inherit_codec == true will implicitly clear the absolute_codec_string 
+		   variable if used since it was the reason it was set in the first place and is no longer needed */
+		if (switch_true(switch_channel_get_variable(tech_pvt->channel, "inherit_codec"))) {
+			switch_channel_set_variable(tech_pvt->channel, "absolute_codec_string", NULL);
+		}
 		codec_string = abs;
 		goto ready;
 	}
@@ -2353,7 +2367,7 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 			
 			switch_channel_set_variable(channel, "presence_id", from);
 		}
-		
+
 		if (!(tech_pvt->nh = nua_handle(tech_pvt->profile->nua, NULL,
 										NUTAG_URL(url_str),
 										TAG_IF(call_id, SIPTAG_CALL_ID_STR(call_id)),
@@ -2566,7 +2580,7 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 	} else {
 		tech_pvt->session_refresher = nua_no_refresher;
 	}
-	
+
 	if (sofia_use_soa(tech_pvt)) {
 		nua_invite(tech_pvt->nh,
 				   NUTAG_AUTOANSWER(0),
