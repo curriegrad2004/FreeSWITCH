@@ -1,6 +1,6 @@
 /* 
  * FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
- * Copyright (C) 2005-2011, Anthony Minessale II <anthm@freeswitch.org>
+ * Copyright (C) 2005-2012, Anthony Minessale II <anthm@freeswitch.org>
  *
  * Version: MPL 1.1
  *
@@ -29,7 +29,7 @@
  * Brian West <brian@freeswitch.org>
  * Steve Underwood <steveu@coppice.org>
  * Antonio Gallo <agx@linux.it>
- * Christopher M. Rienzo <chris@rienzo.net>
+ * Christopher M. Rienzo <chris@rienzo.com>
  * mod_spandsp.c -- Module implementing spandsp fax, dsp, and codec functionality
  *
  */

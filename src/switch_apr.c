@@ -1,6 +1,6 @@
 /* 
  * FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
- * Copyright (C) 2005-2011, Anthony Minessale II <anthm@freeswitch.org>
+ * Copyright (C) 2005-2012, Anthony Minessale II <anthm@freeswitch.org>
  *
  * Version: MPL 1.1
  *
@@ -1169,6 +1169,11 @@ SWITCH_DECLARE(switch_status_t) switch_thread_exit(switch_thread_t *thd, switch_
  */
 SWITCH_DECLARE(switch_status_t) switch_thread_join(switch_status_t *retval, switch_thread_t *thd)
 {
+	if ( !thd ) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "ERROR: Attempting to join thread that does not exist\n");
+		return SWITCH_STATUS_FALSE;
+	}
+
 	return apr_thread_join((apr_status_t *) retval, (apr_thread_t *) thd);
 }
 
@@ -1223,6 +1228,10 @@ SWITCH_DECLARE(int) switch_atomic_dec(volatile switch_atomic_t *mem)
 #endif
 }
 
+SWITCH_DECLARE(char *) switch_strerror(switch_status_t statcode, char *buf, switch_size_t bufsize)
+{
+       return apr_strerror(statcode, buf, bufsize);
+}
 
 /* For Emacs:
  * Local Variables:

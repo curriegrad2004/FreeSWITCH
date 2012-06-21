@@ -270,64 +270,17 @@ Sub CreateVersion(tmpFolder, VersionDir, includebase, includedest)
 	strVerMicro = FindVersionStringInConfigure(VersionDir & "configure.in", "SWITCH_VERSION_MICRO")
 	strVerRev   = FindVersionStringInConfigure(VersionDir & "configure.in", "SWITCH_VERSION_REVISION")
 	
-	If Right(tmpFolder, 1) <> "\" Then tmpFolder = tmpFolder & "\" End If
-	If Not FSO.FileExists(tmpFolder & "fs_svnversion.exe") Then 
-		Wget ToolsBase & "fs_svnversion.exe", tmpFolder
-	End If	
-
-	If Not FSO.FileExists(tmpFolder & "libdb44.dll") Then 
-		Wget ToolsBase & "libdb44.dll", tmpFolder
-	End If	
-	If Not FSO.FileExists(tmpFolder & "libsvn_diff-1.dll") Then 
-		Wget ToolsBase & "libsvn_diff-1.dll", tmpFolder
-	End If	
-	If Not FSO.FileExists(tmpFolder & "libsvn_subr-1.dll") Then 
-		Wget ToolsBase & "libsvn_subr-1.dll", tmpFolder
-	End If	
-	If Not FSO.FileExists(tmpFolder & "libsvn_wc-1.dll") Then 
-		Wget ToolsBase & "libsvn_wc-1.dll", tmpFolder
-	End If	
-	If Not FSO.FileExists(tmpFolder & "intl3_svn.dll") Then 
-		Wget ToolsBase & "intl3_svn.dll", tmpFolder
-	End If	
-	If Not FSO.FileExists(tmpFolder & "libapr-1.dll") Then 
-		Wget ToolsBase & "libapr-1.dll", tmpFolder
-	End If	
-	If Not FSO.FileExists(tmpFolder & "libaprutil-1.dll") Then 
-		Wget ToolsBase & "libaprutil-1.dll", tmpFolder
-	End If	
-	If Not FSO.FileExists(tmpFolder & "libapriconv-1.dll") Then 
-		Wget ToolsBase & "libapriconv-1.dll", tmpFolder
-	End If	
-	If Not FSO.FileExists(tmpFolder & "libsvn_delta-1.dll") Then 
-		Wget ToolsBase & "libsvn_delta-1.dll", tmpFolder
-	End If	
+	'Set version to the one reported by configure.in
+	If strVerRev <> "" Then
+	    VERSION = strVerRev
+	End If
 
 	Dim sLastFile
-	Const OverwriteIfExist = -1
 	Const ForReading       =  1
 
-	if strVerRev = "" Then
-		if FSO.FolderExists(VersionDir & ".svn") Then
-			VersionCmd="fs_svnversion " & quote & VersionDir & "." & quote &  " -n"
-			Set MyFile = fso.CreateTextFile(tmpFolder & "tmpVersion.Bat", True)
-			MyFile.WriteLine("@" & "cd " & quote & tmpFolder & quote )
-			MyFile.WriteLine("@" & VersionCmd)
-			MyFile.Close
-			Set oExec = WshShell.Exec("cmd /C " & quote & tmpFolder & "tmpVersion.Bat" & quote)
-			Do
-				strFromProc = OExec.StdOut.ReadLine()
-				VERSION="svn-" & strFromProc
-			Loop While Not OExec.StdOut.atEndOfStream
-			sLastVersion = ""
-			Set sLastFile = FSO.OpenTextFile(tmpFolder & "lastversion", ForReading, true, OpenAsASCII)
-			If Not sLastFile.atEndOfStream Then
-				sLastVersion = sLastFile.ReadLine()
-			End If
-			sLastFile.Close
-		End If
-
-		if FSO.FolderExists(VersionDir & ".git") Then
+	'Try To read revision from git, if it was not found in "configure.in" already
+	If strVerRev = "" Then
+		If FSO.FolderExists(VersionDir & ".git") Then
 			VersionCmd="git log --format=" & quote & "%%h %%ci" & quote & " -1 HEAD"
 			Set MyFile = FSO.CreateTextFile(tmpFolder & "tmpVersion.Bat", True)
 			MyFile.WriteLine("@" & "cd " & quote & VersionDir & quote)
@@ -348,12 +301,8 @@ Sub CreateVersion(tmpFolder, VersionDir, includebase, includedest)
 		End If
 	End If
 	
-	if strVerRev <> "" Then
-	    VERSION = strVerRev
-	End If
-
 	If VERSION = "" Then
-		VERSION = "UNKNOWN"
+		VERSION = "-UNKNOWN"
 	End If
 
 	If VERSION <> sLastVersion Then

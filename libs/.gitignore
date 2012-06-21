@@ -225,6 +225,7 @@ missing
 /ldns/doc/ldns_manpages
 /ldns/include/
 /ldns/ldns/config.h
+/ldns/ldns/ldns
 /ldns/ldns/net.h
 /ldns/ldns/util.h
 /ldns/lib
@@ -887,7 +888,6 @@ missing
 !/ldns/drill/install-sh
 !/ldns/examples/config.h.in
 !/ldns/examples/configure
-!/ldns/install-sh
 !/ldns/ldns/config.h.in
 !/libdingaling/config.guess
 !/libdingaling/config.sub
