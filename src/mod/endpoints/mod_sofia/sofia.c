@@ -4654,7 +4654,7 @@ switch_status_t config_sofia(int reload, char *profile_name)
 						if (!strcasecmp(val, "aal2")) {
 							profile->codec_flags = SWITCH_CODEC_FLAG_AAL2;
 						}
-					} else if (!strcasecmp(var, "username")) {
+					} else if (!strcasecmp(var, "sdp-username")) {
 						profile->username = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "context")) {
 						profile->context = switch_core_strdup(profile->pool, val);
